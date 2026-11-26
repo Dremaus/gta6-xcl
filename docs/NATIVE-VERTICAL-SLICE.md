@@ -1336,3 +1336,25 @@ Remote (accessed 2026-11-25):
 *This is an engineering plan, not a promise of 30 fps and not legal advice. The plan
 succeeds if it produces a measured, reproducible answer â€” including a well-evidenced
 "this laptop cannot do it" â€” within 30 days.*
+
+### 7.1 Measured: the native draw-cost ceiling (26.11, commit 08f39e2, evidence/g1-ceiling-*.json)
+
+`s0-replay bench` replays the synthetic one-triangle draw 3500 times per
+frame with a warm PSO cache, on the RTX 4060 Laptop (dGPU pinned through
+DXGI enumeration — `CreateDevice(None)` silently picks the Radeon 780M,
+the same iGPU trap the layer had to fix):
+
+| variant | frame ms (median of 25) | us/draw | draws fitting 33 ms |
+|---|---|---|---|
+| warm, 1 PSO | 1.02 | 0.29 | 113 569 |
+| + PSO switch x4 | 1.06 | 0.30 | 109 065 |
+| + state churn (viewport+scissor per draw) | 1.02 | 0.29 | 112 903 |
+
+Reading: the GPU+driver can absorb the game's observed 3 000–5 966
+draws/frame at <1 % of a 33 ms budget *for command processing alone*.
+The layer spends 631–1880 ms/frame — the delta is layer semantics
+(per-draw host bookkeeping, staging, copy-back), not draw throughput.
+The plan's premise (native path can reach 30 fps; the layer path cannot)
+now has measured backing. Honest caveat: real draws add SRV/UAV binds,
+large index ranges, and shader execution time; this is a ceiling, not a
+forecast — G1's captured-room replay remains the real gate.
