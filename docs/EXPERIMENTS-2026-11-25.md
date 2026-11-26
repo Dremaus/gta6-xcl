@@ -192,3 +192,72 @@ A nie odtworzyl AV (klasa 3 jest losowa, w A po prostu nie trafil late fault); B
 2 late faulty kazdy - stary kod zabilby oba procesy, nowy przezyl. Klasa 3 zniknela.
 Nastepne: czwarta klasa - assert tytulu int3 @image+0x5149aec (stos +0xa5db22, +0x5453ac7,
 +0x23d0f9a), bez debug output tytulu; i nadal GPU reset w swiecie (nie moje).
+
+## Czwarta klasa: int3-forensyka (Claude #2)
+
+Drzewo: D:\git\VItoriaBr-tdr (bylo kopia bez .git -> `git init`, branch tdr-int3: 61bcf22 baseline
+"as found" = main 5a84eb4 + lokalny host.rs (wybor adaptera high-performance, VICTORY_RELAY_SAFE);
+cf0abd7 port fixow klas 2-3 z opt 1944123 (watch.rs + xmem.rs - tdr ich NIE mial, wbrew zalozeniu,
+bez nich run nie dozylby int3); b19785a + ef2bde0 instrumentacja). Launcher:
+D:\Gry\VItoriaBr-data\Launch-SafeMem-TDR.ps1 (TDR_NOWATCH=1 / pool przelacza watch).
+
+WERDYKT mem-vs-file: int3 jest W PLIKU, to assert tytulu - zadnej korupcji .text.
+- Zalozenie "w pliku nie ma 0xCC" bylo bledne: offset pliku = RVA - 0xC00 (.text va 0x1000, raw 0x400).
+  Plik @+0x5149aec: `... 3d fe ff 01 00 | 74 60 | ...` (0x5149a85 cmp eax,0x1fffe; 0x5149a8a je
+  0x5149aec) i pod 0x5149aec `cc 31 ff ...`. "85 ed" to bajty spod offsetu 0x5149aec (= RVA 0x514a6ec).
+- Linia z handlera (run 4, 8m41s): `int3 forensics: rva=0x5149aec mem=cc 31 ff 48 89 f8 48 83 c4 28 5f 5e
+  c3 89 f1 48 file=cc 31 ff 48 89 f8 48 83 c4 28 5f 5e c3 89 f1 48 verdict="the file has the int3"
+  state=0x1000 protect=0x20 type=0x1000000 page_int3s_not_in_file=0 page_bytes_differing=0`.
+- Run 1 (watch 64 KiB chunkow calego .text co 30 s, 5 min): zero zmian kodu, zero regionow
+  zapisywalnych. Tytul nie importuje VirtualProtect/WriteProcessMemory/FlushInstructionCache, a przez
+  GetProcAddress pyta tylko o CondVar, Api*Impl, XErrorReport, MiniDumpWriteDump.
+- +0xf2cc4b (stara klasa) tez jest w pliku: `call 0x5f3fd20; test eax,eax; jnz +1; int3`, a 0x5f3fd20 =
+  `jmp [IAT 0x6793a48]` = xmem.dll!XMemMapPhysicalPagesScatter -> stara atrybucja do xmem (klasa 1,
+  blad 487) byla PRAWIDLOWA.
+
+Co to za assert: wyczerpana lock-free pula obiektow stalej wielkosci. Funkcja alloc +0x5149980
+(wirtualna, w 5 vtablach; druga kopia +0x2055960): head = [pool+0x20] (17-bitowy indeks + tag ABA
+w gornej polowie), 0x1fffe = lista pusta -> int3. Rejestry we wszystkich rekordach: rax=...0001fffe,
+rcx=0xdfcf8b420 (ta sama pula co run), edx=0xc. Globalny wskaznik puli: image+0xa9ec938.
+Naglowek: base 0xdfcf8b480, element 0xe0 (224 B), pojemnosc 0x57e4 = 22 500, bitmapa 0xdfd459c10.
+Krzywa (run 5, VICTORY_POOL_WATCH, 8m23s, int3 o 503 s):
+| t | in_use | tag (=liczba zwolnien) | fps |
+|---|---|---|---|
+| 40 s | 0 | 0 | 30 (menu) |
+| 70 s | 7 319 | 1 | 30 |
+| 161 s | 9 220 | 0x136 | 0.2-0.6 (3D od ~95 s) |
+| 312 s | 13 900 | 0x2c4 | 0.3 |
+| 433 s | 18 530 | 0x35a | 0.4 |
+| 493 s | 21 454 | 0x35a | 0.3 |
+~34 alokacji/s (~90 na klatke 3D), zwolnien lacznie 858 i od ~430 s ZERO. Zwalnianie: jedyne miejsce
++0x51f2c80 (lock dec [pool+0x10] + push), wolane z +0x51f20f0 = flush listy odroczonych usuniec
+(petla po tablicy wskaznikow: release do puli albo vtbl[0](obj,1)); flush wolany z +0x336879,
++0x9d9d15, +0x22a2374 (dwa ostatnie obok ramek glownej petli z klasy 3: +0x9dd0c2, +0x22a2a99).
+Producenci: watki job-systemu (8 watkow trafilo assert naraz, wspolna ramka startowa +0x2215eca).
+
+Wniosek: to nie korupcja ani zapis warstwy w obraz - tytul wycieka obiekty, bo odroczone usuwanie
+prawie nie nastepuje. Na konsoli przy 30 fps 90/klatke zapelniloby pule w ~8 s, wiec flush musi tam isc
+co klatke. Hipoteza do sprawdzenia (najostrzejsza): flush jest bramkowany postepem GPU (fence/EOP
+"klatka N skonczona", ktory tytul czyta z pamieci) - zapis zwrotny fence'ow przez warstwe zostaje coraz
+bardziej w tyle (przy 0.3 fps i ~850 ms "on the GPU"/klatke), az zwolnienia staja. Alternatywa: flush
+jest per-klatka i limitowany, a producenci ida w czasie zegarowym - wtedy to po prostu skutek 0.3 fps.
+HANDOFF (nastepny krok): w warstwie logowac na klatke ostatnia wartosc fence/EOP zapisana tytulowi vs
+ostatnia zasubmitowana, obok `tag` puli (VICTORY_POOL_WATCH=ga9ec938 juz jest); jesli zwolnienia staja
+razem z rosnaca luka fence -> fix w sciezce zapisu zwrotnego fence'ow; jesli fence nadaza -> problem
+wydajnosci (0.3 fps), nie poprawnosci. Gdzie szukac w tytule: wejscie do +0x336740 / +0x9d9cc0 /
++0x22a2370 (warunek przed wywolaniem flush). Fixu w kodzie warstwy NIE ma (przyczyna po stronie tytulu,
+wyzwalacz po stronie warstwy niepotwierdzony).
+
+Runy (tdr, release+diagnostics, SafeMem+Keys):
+| run | watch | zyl | koniec |
+|---|---|---|---|
+| 1 | obraz+kod | ~5 min, 3D 14062 draws | cichy koniec, brak WER (prawdopodobnie zabity z zewnatrz) |
+| 2 | obraz+kod | ~80 s | cichy, brak WER |
+| 3 | obraz+kod+pula | 56 s | exit 0xC0000409 (fail-fast), bez rekordu |
+| 4 | brak (sama forensyka) | 8m41s, 3D 11674 | int3 +0x5149aec, linia forensyki j.w. |
+| 5 | sama pula | 8m23s | int3 +0x5149aec, krzywa j.w. |
+Uwaga: watek pelnego watchu kodu (hash 100 MB .text co 30 s + strony co 100 ms) jest podejrzany o
+fail-fast w runach 2-3 (bez niego oba runy doszly do int3) - uzywac VICTORY_POOL_WATCH samego albo
+VICTORY_IMAGE_WATCH tylko na krotko. Rownolegle chodzil tez run Agenta P (opt, PID 36028) - jeden run
+mi przez to padl od razu; gry nie wolno odpalac rownolegle.
+Testy tdr: victory-loader 29+3, victory-hle 109, victory-gpu 196 (z diagnostics) - zielone.
