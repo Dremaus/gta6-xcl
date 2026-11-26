@@ -121,3 +121,21 @@ niezacommitowanych stron w menu) — prawdopodobnie wspolna przyczyna: uszkodzone/
 tytulu; (3) borderless + DPI dzialaja (screenshot: pelny ekran bez ramki, 2560x1600 fizyczne).
 Narzedzia: Click-At.ps1 (klik w wspolrzednych), Foreground-Check.ps1, Launch-TDR-Gate.ps1 (-Gate on/off/safe),
 VICTORY_KEYS='25:Enter,45:Y,58:Enter,72:Enter,90:Enter' — protokol wejscia do swieta.
+
+## 05:55 — VEH retry dla okien remapingu (watch.rs)
+
+Dodane w VItoriaBr-opt branch night-2026-11-26 (commit na HEAD 5a84eb4):
+on_write VEH obs³uguje teraz te¿ READ AV na stronie MEM_RESERVE: czeka na
+title_memory_reading (zwolnienie guardu remapingu, który commituje pod tym
+samym gwardelem w map_warn) i wznawia instrukcjê, jeœli strona jest ju¿
+commitowana; WRITE AV na stra¿y niechronionej bloku — ta sama œcie¿ka po
+drop(guards). this_thread_remapping (TLS) chroni przed deadlockiem.
+Efekt na ¿ywo (SafeMem+Keys): zniknê³y oba deterministyczne AV-y
+('reserved, never committed' @image+0x11170ae/0x11171a8 i zapis warstwy
+victory.exe+0x65709e). NOWY, trzeci objaw (ostatni stan nocny, do rana):
+read 0x516a22ec0 'read-write' @image+0x4e8b4b4 — gra czyta stronê, która W
+CHWILI FAULTU jest ju¿ commitowana i odczytywalna (wywiad VirtualQuery w
+handlerze), a mimo to instrukcja AV — nastêpne podejrzenie: access
+przez guard page (PAGE_GUARD bit w Protect) albo race protection-between-
+pages; wymaga analizy Protect (nie tylko State) w reserved()/writable()
+i logowania flagny. Testy victory-gpu 177/177 zielone, victory-hle 109/109.

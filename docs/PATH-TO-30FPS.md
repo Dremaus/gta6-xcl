@@ -86,3 +86,23 @@ recompilation/native renderer. JeÅ›li G2 >15 fps, kontynuujemy hybrydÄ™.
 
 Nie ogÅ‚aszamy 30 fps bez G4. Ale **nie zakÅ‚adamy poraÅ¼ki**: kaÅ¼da bramka jest
 mierzalna, a architektura jest dobrana pod sprzÄ™t, nie pod â€inni nie dali radyâ€.
+
+## Dodatek nocny 26.11 01:40 — wspólny mianownik crashy: pula pamiêci tytu³u
+
+Dwie sygnatury zgonu: (A) device reset ~2,5 min w 3D ( niezaleznie od relay family i od gate
+Agent M), (B) deterministyczny AV gracza +0x11170ae ~60 s w menu SafeMem. Wspólna poszlaka z
+w³asnych dumpów breakpad gry: 'Game Physical: 2143484240/2305818624' (93 % puli 2199 MiB),
+'Unused: 0', TileHeap 968/6236 Mb przy Frame 948. Gra w tym momencie NIE ma ju¿ sk¹d braæ
+stron; wskazania obiektów w jej globalnej tablicy (entry stride 80, [entry+0x20] › obiekt+0x78)
+trafiaj¹ na strony 'reserved, never committed'. Linia unhandled pokazuje tê sam¹ stronê jako
+'read-write' — filtr warstwy doci¹³ stronê PO pierwszym przejœciu (breakpad zd¹¿y³ z³apaæ first-chance).
+
+Hipoteza H6 (nowa, g³ówna): pula fizyczna tytu³u (2199 MiB) jest za ma³a DLA TEGO BUDOWANIA ŒWIEATA
+albo warstwa nie dowozi mapowañ tile/xmem na czas › odmowy alokacji w grze › (A) przez œmieciowe
+GPU-komendy, (B) przez dereferencjê niestworzonych obiektów. Agent A szuka Ÿród³a liczby 2199 MiB
+(herbata: console.rs title_memory() = 10 GiB + 3,5 GiB dla Series X; 2199 MiB nie st¹d — chyba ¿e
+gra sama prosi o tyle przy starcie i tyle ma te¿ na prawdziwej konsoli).
+
+Realny sufit œcie¿ki layerowej bez naprawy pamiêci: dalej 1-2 fps w 3D. Naprawa pamiêci nie da
+30 fps, ale bez niej ¿adna optymalizacja nie utrzyma œwiata przy ¿yciu d³u¿ej ni¿ 2-3 minuty.
+Priorytet do rana: (1) H6, (2) PER-DRAW cost (Agent K), (3) replay-native S0 jako droga tygodnia.
