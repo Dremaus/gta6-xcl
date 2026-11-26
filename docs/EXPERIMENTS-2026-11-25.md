@@ -156,3 +156,39 @@ Wnioski (co zjada klatkê 600-1900 ms przy ~3000 drawów):
    ~2x, a do 30 fps (33 ms) brakuje 20-50x › potwierdzenie sufitu layera; natywna œcie¿ka (S0)
    pozostaje jedyn¹ drog¹ do celu, a warstwa przydaje siê jako capture-oracle (format DPR).
 Narzêdzie: D:\git\gta6-30fps\tools\bench\parse_frame_cost.py <log...>.
+
+## Claude 26.11 rano - trzecia klasa crasha (read AV na stronie "read-write")
+
+Objaw: unhandled 0xc0000005 @image+0x4e8b4b4 (read 0x516a22ec0: 'read-write'), 40-90 s po starcie
+SafeMem+Keys, juz z VEH retry z 05:55.
+Przyczyna (potwierdzona): NIE PAGE_GUARD. Straze watch.rs to PAGE_READONLY (odczyt nie fauluje),
+a crash.rs memory_at() nazywa guard page osobno ('a guard page'), nie maskuje bitu. To TOCTOU w
+on_write: odczyt gosci fauluje w szczelinie remapingu (unmap -> placeholder -> MapViewOfFile3 ->
+commit pod MAPPING), ale zanim VEH zapyta VirtualQuery, remaping juz sie skonczyl -> reserved(at)
+== false -> CONTINUE_SEARCH -> breakpad. Crash reporter pyta jeszcze pozniej, stad 'read-write'
+(te same 'read-write' maja w crashes.log stare AV-y klasy 2, o ktorych wiemy, ze byly w szczelinie).
+Surowe wartosci z handlera (VICTORY_GUARD_READ_STATS=1), pierwsze spojrzenie VEH:
+  State=0x1000 (MEM_COMMIT) Protect=0x4 (PAGE_READWRITE, bez 0x100 PAGE_GUARD) -> 'late' fault.
+  Miejsca: image+0x1510c39 (read 0x6d6930010, 2x, ~65 s), image+0x4dd4005 (read 0x517a27474),
+  image+0x55d3752 (read 0x525e9ae78). Zwykle (w szczelinie): State=0x2000 Protect=0x0 -> po czekaniu
+  State=0x1000 Protect=0x4.
+Fix (VItoriaBr-opt main 1944123, crates/victory-gpu/src/watch.rs): kazdy READ AV poza watkiem
+remapingu czeka na remaping w toku (title_memory_reading; pomijane gdy watek juz trzyma MAPPING
+shared - nowy licznik TLS READING_DEPTH, inaczej deadlock za czekajacym writerem) i wznawia
+instrukcje, jesli strona jest teraz odczytywalna (MEM_COMMIT, bez PAGE_GUARD/NOACCESS). Limit 64
+retry tej samej strony na watek bez zakonczonego remapingu pomiedzy (REMAPS_DONE), potem fault idzie
+dalej. Kolejnosc lockow bez zmian (guards() nie trzymany w sciezce odczytu). Przelaczniki:
+VICTORY_GUARD_READ_STATS=1 (linia na stderr na kazdy read fault, surowe State/Protect przed/po),
+VICTORY_READ_RETRY=0 (stara regula: tylko gdy strona byla MEM_RESERVE przy pierwszym spojrzeniu).
+Testy: victory-gpu 181/181 (177 + 4 nowe w watch::mapping_tests, m.in. odczyt, ktory fauluje na
+stronie NOACCESS i wraca po remapingu -> LATE_READS), victory-hle 109/109. Flake WARP sie nie pojawil.
+Runy (SafeMem+Keys, release+diagnostics):
+| run | tryb | zyl | late faulty | koniec |
+|---|---|---|---|---|
+| A 04:56 | READ_RETRY=0 (stary) | ~9 min | 0 (21 w szczelinie, retried) | GPU device removed (znana klasa) |
+| B 05:06 | fix | ~4:40 | 2 @+0x1510c39 retried | GPU device removed (znana klasa) |
+| C 05:11 | fix | ~7:40, 3D do 14096 draws | 2 retried | NOWE: int3 0x80000003 @image+0x5149aec |
+A nie odtworzyl AV (klasa 3 jest losowa, w A po prostu nie trafil late fault); B i C trafily po
+2 late faulty kazdy - stary kod zabilby oba procesy, nowy przezyl. Klasa 3 zniknela.
+Nastepne: czwarta klasa - assert tytulu int3 @image+0x5149aec (stos +0xa5db22, +0x5453ac7,
++0x23d0f9a), bez debug output tytulu; i nadal GPU reset w swiecie (nie moje).
