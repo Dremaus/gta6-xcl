@@ -1358,3 +1358,17 @@ The plan's premise (native path can reach 30 fps; the layer path cannot)
 now has measured backing. Honest caveat: real draws add SRV/UAV binds,
 large index ranges, and shader execution time; this is a ceiling, not a
 forecast � G1's captured-room replay remains the real gate.
+
+
+### 9.1 S1 seed: multi-draw frame replay works (gta6-native-proto ca2c35f)
+
+The replay tool now speaks a frame, not a draw: rame.json (DPR v2) holds
+one shared target plus an ordered draws[] array of full packets.
+s0-replay frame records/synthetic-frame renders three disjoint triangles
+through one command list with warm PSO/root-sig/resource caches, then
+verifies every pixel of the 512x512 target against the analytic owner map -
+**3 draws, 61 500 covered px, 0 mismatches** on the RTX 4060 (evidence
+s1-seed-frame.json; a strict CPU overlap scan fails closed first).
+The packet shape the layer's capture emitter must produce is now defined
+and exercised end to end; what remains for S1 proper is SRV/UAV + samplers,
+passes/dispatches, reference-PNG verification and the 600-frame G1 loop.
