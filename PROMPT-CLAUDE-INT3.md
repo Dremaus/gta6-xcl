@@ -1,89 +1,76 @@
-# Prompt dla Claude #2 — czwarta klasa: int3 w zapatchowanym miejscu (thunk padding)
+# Prompt dla Claude #2 (v2) — czwarta klasa: int3 w pamięci, którego nie ma w pliku
 
 Paste poniżej linii --- do Claude Code na tej maszynie:
 
 ---
 
-You are continuing on the GTA VI compat-layer project. Previous task (read-fault VEH retry) shipped as
-commit 1944123 in D:\git\VItoriaBr-opt — its fix is CONFIRMED working (game now survives the old class
-into 3D and dies from OTHER classes). New task: FOURTH crash class, which I (orchestrator) have
-partially root-caused. You work ONLY in D:\git\VItoriaBr-tdr (an isolated copy of the main tree at
-HEAD 5a84eb4; the loader code there is byte-identical to opt and to main). DO NOT touch
-D:\git\VItoriaBr-opt or VItoriaBr-opt-hle — other agents are editing those. D:\git\VItoriaBr-tdr
-belongs to you; its release build exists (D3D diag build may not — rebuild as needed).
+GTA VI compat-layer project, task #2 for you. Your previous fix (VEH read-retry, opt commit 1944123)
+works: the game now survives the old classes and reaches 3D. New target: FOURTH crash class.
+You work ONLY in D:\git\VItoriaBr-tdr (isolated copy of main HEAD 5a84eb4; loader/gpu code there is
+identical to opt — fixes proven here will be forwarded later). DO NOT touch D:\git\VItoriaBr-opt
+(Agent P edits draw.rs/host.rs there) or VItoriaBr-opt-hle. You have game-launch authority.
 
-## Evidence gathered for you
+## The forensic fact (orchestrator-verified, trust it)
 
-Two crash signatures, both EXCEPTION_BREAKPOINT 0x80000003 (int3) in guest code:
-- NEW (run C, survived 7m40s in 3D): at victory-image+0x5149aec
-- OLD (run 27620, pre-AV-fix): at victory-image+0xf2cc4b
+Two int3-class crashes: exception 0x80000003 (EXCEPTION_BREAKPOINT) at guest RVAs
++0x5149aec (run C, alive 7m40s, reached 3D, up to 14,096 draws) and +0xf2cc4b (older run, the one
+once blamed on xmem — likely re-evaluate that attribution too).
+At BOTH RVAs the FILE bytes are NOT 0xCC: 0x5149aec is `85 ed` (test ebp,ebp) in an aligned,
+capstone-verified instruction stream; 0xf2cc4b is `21 44...`. The CPU executed an int3 that exists
+only in MEMORY. Also ruled out by me: the import thunks (victory-loader/src/thunks.rs) are emitted
+into a dedicated 22-byte-slot VirtualAlloc block (`48 B9 site / 48 B8 handler / FF E0`) — IAT data,
+no .text patching; the guest call site 0x5149ae2 is a direct `E8` near call to a REAL internal
+function at 0x144e63680 (prologue-verified), not to a stub.
 
-File bytes at those RVAs contain NO 0xCC (they are `85 ed` test ebp,ebp and `21 44 8d...`).
-So the executed int3 exists only in MEMORY — the layer (or the game) patched code at runtime.
-Disassembly around 0x5149aec (original code, aligned, verified with capstone):
-
-    0x145149ac1: vmovaps xmm7, [r8]
-    0x145149ac6: mov ebp, [rcx+0x44]
-    ...
-    0x145149ae2: call 0x144e63680        <- 5-byte E8 rel32; target is a REAL function
-    0x145149ae7: vxorps xmm11,xmm11,xmm11 <- 5-byte VEX3, ends at 0x145149aec
-    0x145149aec: test ebp,ebp             <- fault RIP: int3 ONLY IN MEMORY
-    0x145149aee: jle ...
-
-The prime suspect is the loader's own import/call-site patcher:
-crates/victory-loader/src/thunks.rs — around line 122 it builds a 20-byte patch buffer
-(`code[12..20].copy_from_slice(&(handler as *const () as u64))`) — a 6-byte `FF 25 00 00 00 00`
-jmp + 8-byte absolute (14 total) written into guest code; a 5-byte original `call` cannot hold a
-14-byte patch. Two failure modes to check in the actual code (read thunks.rs and everything that
-writes into guest .text — grep for VirtualProtect + write around the image base):
-(a) the patch is written but the overwritten victim bytes that followed the 5-byte call are NOT
-    relocated, so after the callee returns, RIP=call+5 executes garbage or padding (CC);
-(b) the padding of the patch buffer (bytes 14..20) is 0xCC and gets written into the following
-    guest code — and the return lands exactly there.
-Both = classic detour-length bug. Note the layer maps the image; guest imports are bound by the
-HLE — find WHICH patcher writes into .text at these call sites at all (the layer may only patch
-IAT entries, in which case the culprit could be the GAME patching itself — determine from code
-which runtime writers exist; also check victory-hle for 'hook'/'patch'/trampoline code).
+So: either (1) some runtime writer corrupted the private image page holding 0x5149aec (wrote 0xCC
+data over .text — e.g., a stale VA in a texture/DStorage/shader copy, a relocation fixup bug, a
+wrong-base placeholder map), or (2) the GAME itself patches its .text (hotfix/detour machinery,
+anti-tamper breakpoint placement). Distinguishing these is task #1.
 
 ## Tasks
-1. Read victory-loader/src/thunks.rs + its callers (import binding path, loader) and all sites
-   that write into the mapped image's .text. Map the exact patch layout(s) and lengths.
-2. Correlate: does the patcher's guest-address log (any tracing:: of patched sites) cover
-   RVA 0x5149ae2 / 0xf2cc4b? If no log exists, add one behind diagnostics (feature-gated,
-   cheap: tracing::debug! file name+RVA+old first bytes).
-3. Root-cause for real: either reproduce in a unit/integration test WITHOUT the game (map a
-   fake image page, run the patcher over a crafted 5-byte-call function, assert what lands
-   where; then assert execution flow via your own tiny hand-decode or the existing unwind),
-   or if the writer is NOT the layer, identify the mechanism (hardware breakpoint? RaiseException?
-   a self-patching game system) from the registers and stack and hand back with proof.
-4. If it IS the layer's detour: fix properly — relocate the overwritten victim instructions to
-   a trampoline (standard detour fixup: decode instruction boundaries, move exactly n bytes),
-   or when the patch cannot fit, use a 5-byte patch form that fits (call rel32 -> jmp rel32 to a
-   trampoline stub; the stub holds FF25+abs). Keep the int3 padding rule ONLY for genuinely dead
-   bytes, never in an instruction stream a return could reach. Add tests proving: after patching
-   any call site, the byte at every possible return address is a valid instruction boundary
-   belonging to the relocated victim (assert no 0xCC reachable).
-5. cargo test --offline -p victory-loader (and the whole -p victory-gpu/-hle if files shared),
-   cargo build --offline --release -p victory --features diagnostics in D:\git\VItoriaBr-tdr.
-6. Verify with the game (you have launch authority; one run at a time, kill between):
-   use D:\Gry\VItoriaBr-data\Launch-TDR-Gate.ps1 -Gate on (it runs the TDR tree when Gate=on —
-   that is YOUR fixed tree now) — plus a quick no-fix control if cheap (previous 'on' data:
-   died ~3 min with device removed; int3 class appeared on SafeMem+keys runs; to reproduce the
-   int3 class specifically use the SafeMem profile with the tdr binary: copy
-   Launch-VItoriaBr-SafeMem.ps1 -> Launch-SafeMem-TDR.ps1, only changing $repo/exe to the tdr
-   tree; keep -Keys). Goal is NOT full stability (device-removal is another agent's D2 axis) —
-   goal: NO 0x80000003 anywhere and strictly more long-3D minutes than before; int3 records:
-   D:\Gry\VItoriaBr-data\data\7952987A\crashes.log.
-7. Commit in VItoriaBr-tdr (concise message), append findings in Polish as new section
-   '## Czwarta klasa: int3 w śladzie patchowania (Claude #2)' to
-   D:\git\gta6-30fps\docs\EXPERIMENTS-2026-11-25.md (read the file's style first), commit gta6-30fps
-   with ONLY that file staged.
 
-## Rules (unchanged)
-- no game bytes/data into any repo; GPL-3.0; no DRM bypass — runtime code patching here is the
-  LAYER'S OWN interop machinery, fixing its bug is interoperability work;
-- PowerShell 5.1 quirks; cargo --offline; PATH %USERPROFILE%\.cargo\bin;
-- if a rebuild of D:\git\VItoriaBr-opt is ever needed — STOP and report instead (agent P owns it).
+1. INSTRUMENT (in tdr tree, diagnostics-feature-gated): in the VEH/filter path that reports
+   0x80000003 in the GUEST image (crates/victory-loader/src/crash.rs or where the int3 record is
+   built — the record already resolves victory-image+RVA): dump (a) 16 bytes at RIP from LIVE
+   MEMORY, (b) 16 bytes at the corresponding file offset (the loader knows the file; or read via
+   the image's mapped backing — keep it cheap, only when the code is 0x80000003), (c) VirtualQuery
+   State/Protect at RIP, (d) first 8 bytes of the page before/after. Log as one line:
+   'int3 forensics: mem=... file=... state=... protect=...'. If mem!=file at RIP => hypothesis (1)
+   live corruption; equal => the CPU saw a different mapping (page swapped/mapped twice) => also
+   (1)-adjacent. Record which of the two.
+2. AUDIT writers into image pages: grep every place that can write into the guest image VA range:
+   relocation/fixup application in victory-loader (does it write after mapping? base deltas?),
+   DStorage queue destinations, DirectQueue 'writes into physical pages at addresses the title
+   had mapped' machinery, victory_gpu inplace/shadow guarded copies that could target a stale VA,
+   the placeholder-map path in xmem (map_warn can MapViewOfFile3 with MEM_REPLACE_PLACEHOLDER —
+   verify a placeholder CANNOT exist inside an image-mapped range; an image range mapped as
+   placeholder would swap page content between file-view and section — explain how). Fix or
+   handoff precisely.
+3. If (2) finds nothing, check (1)-game: search the exe for its own detour/pattern-writer by
+   testing whether the fault pages stay corrupted AFTER a fresh boot with everything else off —
+   i.e., extend instrumentation: at image load, hash the faulting PAGE (RVA 0x5149000..0x514A000)
+   after mapping; re-hash every 60 s (a cheap background once-per-frame counter gated by env
+   VICTORY_IMAGE_WATCH=<hexrva>); log first mutation with a stack capture of the writer thread if
+   available (GetThreadContext of all threads is too heavy; at minimum timestamp + which subsystem
+   is alive). Deterministic 7-8 min reproduction window (the int3 fires ~7m40s into SafeMem+Keys)
+   makes this tractable.
+4. Whatever the root cause: a minimal fix or the sharpest possible handoff doc. Tests for
+   whatever code you touch (cargo test --offline -p victory-loader / -p victory-gpu / -p victory-hle
+   as relevant; the WARP flake may fail; ignore indirect::tests::warp_budget...).
+5. Build: PATH %USERPROFILE%\.cargo\bin; cargo build --offline --release -p victory --features
+   diagnostics in tdr. Run: copy D:\Gry\VItoriaBr-data\Launch-VItoriaBr-SafeMem.ps1 to
+   Launch-SafeMem-TDR.ps1 with $repo -> D:\git\VItoriaBr-tdr, keep -Keys, add
+   VICTORY_IMAGE_WATCH etc. via the script. Runs: expect to see int3 again (~4-8 min) WITH your
+   forensic line — that is SUCCESS for step 1 (one run is enough to classify; try twice).
+   One game at a time; kill victory.exe between runs; crash records:
+   D:\Gry\VItoriaBr-data\data\7952987A\crashes.log; stderr: D:\Gry\VItoriaBr-data\logs\*.
+6. Commit in tdr (concise); append Polish section '## Czwarta klasa: int3-forensyka (Claude #2)'
+   to D:\git\gta6-30fps\docs\EXPERIMENTS-2026-11-25.md, commit ONLY that file in gta6-30fps.
 
-Report: which writer placed the int3, patch layout(s) found, the fix, test counts, run timings
-before/after, commit hashes.
+## Rules
+GPL-3.0; no game data/bytes into repos (forensic LOGS with 16-byte windows are fine, keep them in
+D:\Gry or the logs dir, not in the repo); no DRM bypass — this is the layer's own interop defect
+hunting; PowerShell 5.1, cargo --offline; do not rebuild VItoriaBr-opt ever.
+
+Report: mem-vs-file verdict (with the logged bytes), the writer identified or 'game-side, proven
+via page-watch timeline', fix or handoff, test counts, run timings, commits.
