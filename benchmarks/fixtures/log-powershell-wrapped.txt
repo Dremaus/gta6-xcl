@@ -1,0 +1,13 @@
+# SYNTHETIC FIXTURE - not a measurement.
+# Same records as log-synthetic-format.txt, wrapped the way a PowerShell
+# transcript wraps them, including a split number and a split identifier.
+powershell.exe : 2026-11-25T20:01:05.000000Z  INFO victory_gpu::framelog: frame times: 6 frames in 5.0 s: shortest 95
+0 ms, median 1020, longest 4016; 1 long (over 1530 ms, the usual frame of the last 64 being 1020); each: 950 980 10
+00 1020 1100 4016
+At line:1 char:97
++ ... lyContinue; powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass ...
++ CategoryInfo          : NotSpecified: (:) [], RemoteException
++ FullyQualifiedErrorId : NativeCommandError
+powershell.exe : 2026-11-25T20:01:10.000000Z  INFO victory_gpu::host: 1.0 fps, 1000.0 ms/frame (760.0 preparing: copies 25
+0.0 ms 1.2 MB, textures 100.0 ms 8.0 MB; 8.0 on the GPU; 120.0 copying back 64.0 MB), 1011 draws/frame, dropped 2844 witho
+ut a host pipeline (253 being made) and 0 indirect; heap buffers 3.0 passes 950.0 ms

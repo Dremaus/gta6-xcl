@@ -1,0 +1,9 @@
+unix time 1795631552, process 22944
+VItoriaBr: panic on thread "victory-relay": panicked at library\std\src\io\stdio.rs:1166:9:
+failed printing to stderr: the pipe is closing. (os error 232)
+
+unix time 1795637831, process 26132
+VItoriaBr: unhandled exception 0x80000003 at victory-image-<hash>.dll+0x5149aec
+  rax 0x0 rbx 0xc rcx 0x0 rdx 0xc
+  #0  victory-image-<hash>.dll+0x5149aec
+  #1  victory-image-<hash>.dll+0xa5db22

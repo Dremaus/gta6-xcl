@@ -1,0 +1,8 @@
+date,source,fps,ms_per_frame,draws,dropped,note
+2026-11-25,vitoriabr-4060-cold,0.2,4016.6,2973,2844,cutscene 3D; RTX 4060 8GB/16GB
+2026-11-25,vitoriabr-4060-cold,0.3,2985.1,3361,1504,cutscene 3D; pipelines being made
+2026-11-25,vitoriabr-4060-cold,0.8,1317.2,1011,1418,cutscene 3D; pipelines being made
+2026-11-25,vitoriabr-4060-open-world,1.0,1647.6,3504,,opening cutscene; screenshot caption
+2026-11-25,anyxboxx-4070super,5.0,200.0,6550,,README; not this laptop
+2026-11-25,fxceless-4070,9.6,104.0,3850,,README; first rooms with switches
+2026-11-25,vitoriabr-5060ti,6.0,167.0,3900,,README; stronger GPU

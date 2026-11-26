@@ -1,0 +1,34 @@
+# game data and derived data never enter the repo
+*.rpf
+*.xvd
+*.xvc
+*.msixvc
+*.ttpf
+*.awc
+*.bk2
+*.bik
+*.dds
+*.bin
+*.exe
+*.dll
+*.pdb
+*.lib
+
+# build output and local caches
+target/
+out/
+build/
+cache/
+logs/
+*.log
+*.tmp
+.venv/
+__pycache__/
+*.pyc
+
+# local config
+victory.toml
+game-path.txt
+
+# benchmark run artifacts stay local; curated reports are committed
+benchmarks/runs/

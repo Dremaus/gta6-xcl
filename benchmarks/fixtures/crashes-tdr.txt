@@ -1,0 +1,2 @@
+unix time 1795640711, process 10016
+VIctory: host GPU failure: host GPU device removed after 1 submissions sent ahead (VICTORY_RELAY=1) of 11 lists; no breadcrumbs (0x887A0004); device removed: the GPU will not answer further commands (0x887A0007); a diagnostics build with VICTORY_D3D12_DEBUG=1 names the command
