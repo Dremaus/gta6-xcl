@@ -6,6 +6,13 @@
 **Worktree diagnostyczny:** `D:\git\VItoriaBr-shader-diag` (HEAD, czysty).  
 **Licencja:** GPL-3.0.
 
+> **Korekta 2026-11-26 (po sesji):** w worktree `shader-diag` nie ma flagi
+> `--translate-only`. Diagnostyka używa `$env:VICTORY_TRANSLATE_ONLY='<hash>'`
+> + `victory translate ... --pipelines`, a `pipeline/host.rs:607` loguje
+> `VICTORY_DIAG compute_refused hash=... hr=... wave=... root_params=...
+> samplers=... user_data_dwords=...`. Raporty 5 agentów, wcześniej opisane
+> jako brakujące, istnieją teraz w `D:\git\gta6-30fps\docs` (commit 9df3612).
+
 ---
 
 ## 0. Zakres i źródła dowodów
