@@ -139,3 +139,20 @@ handlerze), a mimo to instrukcja AV — nastêpne podejrzenie: access
 przez guard page (PAGE_GUARD bit w Protect) albo race protection-between-
 pages; wymaga analizy Protect (nie tylko State) w reserved()/writable()
 i logowania flagny. Testy victory-gpu 177/177 zielone, victory-hle 109/109.
+
+## 06:00 — Anatomia kosztu klatki 3D (parse_frame_cost.py na trzech nocnych runach)
+
+| Run (profil) | ms/frame 3D (mediana) | draws med | preparing med | copies med | render-ran med (user+kernel) | present med |
+|---|---|---|---|---|---|---|
+| tdr-on (relay family ON, gate) | 1881 | 3738 | 928 | 276 | 16 (8+16) | 358 |
+| tdr-safe (relay OFF) | 1369 | 3058 | 414 | 218 | 618 (141+375) | 8 |
+| opt-new (rodziny mix, uncap) | 631 | 3302 | 426 | 195 | 16 (0+16) | 308 |
+
+Wnioski (co zjada klatkê 600-1900 ms przy ~3000 drawów):
+1. 'preparing' (stage'ing klatek Warstwy: kopie+tekstury+heaps) = 30-50 % czasu — 414-928 ms.
+2. Czas GPU-na-karcie widziany jako 'present' 300-360 ms (relay ON) — karta realnie rêki
+   klatki d³u¿ej ni¿ CPU warstwy; przy relay OFF wêdruje do kernela (375 ms) render-threadu.
+3. Per-draw ? 0,2-0,6 ms — nawet zerowanie kosztu per-draw (plan Agenta K) da co najwy¿ej
+   ~2x, a do 30 fps (33 ms) brakuje 20-50x › potwierdzenie sufitu layera; natywna œcie¿ka (S0)
+   pozostaje jedyn¹ drog¹ do celu, a warstwa przydaje siê jako capture-oracle (format DPR).
+Narzêdzie: D:\git\gta6-30fps\tools\bench\parse_frame_cost.py <log...>.
