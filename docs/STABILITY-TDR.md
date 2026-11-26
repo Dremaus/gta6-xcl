@@ -1,4 +1,4 @@
-# Stabilność, TDR, sterownik i zasilanie — 2026-11-25
+# Stabilność, TDR, sterownik i zasilanie — 2026-11-25 (akt. 26.11)
 
 Zakres: fxceless/victory na RTX 4060 Laptop 8 GB / 16 GB, Windows 11.
 Dokument powstał **tylko z logów i zapytań systemowych**: nie zmieniano runtime'ów,
@@ -20,18 +20,23 @@ pamięci i zasilaniu.
 4. 7,7 GB VRAM na 8,0 GiB i 16 GB RAM to **wzmacniacze**, nie udowodniona
    przyczyna. VItoriaBr działa stabilnie przy 5,3–7,5 GB, więc sam VRAM nie
    wyjaśnia różnicy.
-5. Nie podnoś `TdrDelay` jako pierwszego kroku. Najpierw DRED repro na
-   konfiguracji crashującej (D1), potem profil bezpieczny (S1b), potem izolacje.
-6. Nowe runy przenoszą korelację z VRAM/copy-back na ścieżkę równoległego
-   wysyłania (relay/late/async/queue2): trzy utraty urządzenia miały `RELAY=1`
-   lub `LATE_WAIT=1`; dwa runy 3D bez tej rodziny (safe-mem 22:06, dred 22:14)
-   nie straciły urządzenia mimo copy-back 1637/2491 ms i VRAM aż do 53 MB free.
-7. Crash 3 (21:56:58Z, opt+memory) padł przy **1 submission / 1 list** i
-   `RELAY=1` — to nie jest głębokość kolejki ani timeout; to treść submission
-   albo wyścig wokół niego. Nazwie go tylko build diag z DRED.
-8. Run dred nie miał warstwy debug: `0x887A002D` — brakuje Graphics Tools
-   (d3d12sdklayers.dll). DRED bez niej działa, ale page-fault info i GBV są
-   martwe; zainstaluj ją przed D1.
+5. Nie podnoś `TdrDelay` jako pierwszego kroku. Kolejność po nocy 26.11:
+   **D2** (bisect bez DRED na common-env) → **D1** (DRED repro po instalacji
+   Graphics Tools) → izolacje.
+6. **H5 (rodzina relay) ODRZUCONA**: `-Gate safe` (RELAY/QUEUE2/ASYNC_SUBMIT/
+   LATE_WAIT=0) padł w 3D tak samo (~2 min 18 s, `0x887A0005`→`0x887A0007`,
+   „submission of 1 lists”), a `RELAY_SAFE=1` nie pomógł. **Każdy** run, który
+   wszedł do świata (VICTORY_KEYS), padł w 3D w 2–3 min — w obu rodzinach;
+   menu jest stabilne godzinami (2 h i 4 h) w tym samym env.
+7. Nocne utraty to prawdziwy **HUNG**: `0x887A0005` (DEVICE_HUNG) logowany przed
+   `0x887A0007` przy tworzeniu „shared/read-back buffer”. To klasyczny TDR —
+   odwraca wniosek z crashu 2 („nie TDR, 15,9 ms”).
+8. Jedyny 3D-survivor: run DRED 22:14 (build **main diag**, DEBUG/DRED, warstwa
+   i tak nieaktywna — `0x887A002D`). Kandydaci na ochronę: build diag/main,
+   env DEBUG, brak UNCAP/REFRESH=120/BORDERLESS, brak rodziny JOIN/WIDE/CARD.
+   Wszystkie padające runy nocne były na buildach **opt/tdr**. Patrz H7 i D2.
+9. Trzeci AV (read na stronie już commitowanej, podejrzenie PAGE_GUARD) jest
+   obsługiwany przez innego agenta; D2 traktuje AV jako osobny objaw, nie reset.
 
 ## Dowody
 
@@ -48,6 +53,11 @@ pamięci i zasilaniu.
 | Crash 3 kontekst | run opt+memory od 21:54:12Z (~2 min 44 s); 3D przy 0,3–1,9 fps; heap buffers 13–272 ms; copies 189–1308 ms; copy-back 132–1613 ms | pomiar operatora (stderr zrotowany do nowego runu) |
 | Safe-mem, bez crasza | 22:06:11–22:08:46Z: relay/join/async/queue2 wyłączone; 3D 0,3 fps; copies 230–467 ms (226–303 MB/klatkę), copy-back 380–1637 ms; karta 5081 MB / budżet 7188 MB; okno zamknięte ręcznie | `safe-mem-stderr.log` |
 | DRED diag, bez crasza | 22:14:12–22:19:16Z: build diag, `DRED=1 DEBUG=1`; **brak debug layer `0x887A002D`**; menu 30 fps, potem 3D 0,2 fps; copy-back 2436–2491 ms; VRAM free 53 MB; zatrzymany ręcznie | `dred-stderr.log` |
+| tdr-on (noc) | 23:45:40–23:48:30Z: VItoriaBr-tdr, relay family ON + `RELAY_SAFE=1` (gate M), Arm B, KEYS; 33,3 ms (uncap bez efektu); `0x887A0005` „no shared buffer” → `0x887A0007` po ~2 min 50 s | `ab-tdr-on-stderr.log` |
+| tdr-safe (noc) | 23:52:48–23:55:06Z: VItoriaBr-opt, relay family **OFF**, JOIN_COPIES/CARD_REHASH/WIDE_*/BACK_OWN_VIEW=1, UNCAP+BORDERLESS, KEYS; `0x887A0005` → `0x887A0007` „submission of 1 lists” po ~2 min 18 s | `ab-tdr-safe-stderr.log` |
+| opt-new (noc) | 00:16:23–04:33:04Z: VItoriaBr-opt, relay family ON, UNCAP+BORDERLESS, KEYS; **4 h 16 min stabilnego menu**, potem śmierć w 3D ~2 min po wejściu; `0x887A0005` „no shared/read-back buffer” → `0x887A0007` | `ab-opt-new-stderr.log` |
+| safe-mem-keys (noc) | SafeMem + Keys: deterministyczny AV 0xc0000005 @image+0x11170ae (2/2); po fixie VEH nowy AV (read, strona commitowana, podejrzenie PAGE_GUARD) — osobny objaw, inny agent | `EXPERIMENTS-2026-11-25.md` |
+| Menu-stable | PID 15444 (opt -Memory -Borderless) 2 h menu bez crasza; opt-new 4 h menu — ten sam env co padające 3D, ale bez wejścia do świata | `EXPERIMENTS-2026-11-25.md` |
 | Ostatni list | 18 164 started / 18 163 finished — jedno submission nie wróciło | `game-stderr.log` |
 | VRAM w crashu | 7,7 GB / 8,0 GiB (8 188 MiB, ~94%) | pomiar operatora |
 | RAM | 16 GB, wolne 4,37 GB w idle, pagefile 34 466 MB, peak 10 569 MB | `Win32_OperatingSystem`, `Win32_PageFileUsage` |
@@ -99,21 +109,19 @@ urządzenia. VRAM jest wzmacniaczem, nie prognozatorem resetu.
 `BAR1` (8 163/8 192 MiB w idle) to aperture/resizable BAR, **nie** wolny VRAM.
 Nie używaj `BAR1 free` jako wskaźnika headroomu.
 
-### 3. Relay / join / gather
+### 3. Relay / join / gather — rodzina relay ODRZUCONA
 
-Trzy utraty urządzenia mają jeden wspólny mianownik: crash 1 `RELAY=1`
-(11 listów), crash 2 `LATE_WAIT=1` (1 list), crash 3 `RELAY=1` + `LATE_WAIT=1`
-+ `ASYNC_SUBMIT=1` + `QUEUE2=1` (1 submission / 1 list). Dwa runy 3D bez tej
-rodziny przełączników (safe-mem 22:06, dred 22:14) przetrwały **gorsze**
-copy-back (1637/2491 ms) i niższy VRAM (53 MB free) bez utraty urządzenia.
-To podnosi H5 z „niska” do „średnia-wysoka”: podejrzana jest ścieżka
-równoległego wysyłania i kopiowania wstecz (relay/late/async/queue2), a nie
-sama objętość kopii. Crash 3 padł przy 1 submission w locie, więc to nie
-głębokość kolejki — tylko treść submission albo wyścig wątku relay z submitem.
-Profil bezpieczny nadal wyłącza `RELAY`, `LATE_WAIT`, `ASYNC_SUBMIT`, `QUEUE2`,
-`JOIN_PARTS`, `INDIRECT_GATHER`, `BACK_OWN_VIEW`; `JOIN_COPIES` i
-`CARD_REHASH_RUNS` wracają do 1 (patrz S1b) — łączą kopie/passy, nie dodają
-wątków.
+Noc 26.11 rozstrzygnęła to pytanie: `Launch-TDR-Gate.ps1 -Gate safe`
+(RELAY=0, QUEUE2=0, ASYNC_SUBMIT=0, LATE_WAIT=0 na VItoriaBr-opt, z
+JOIN_COPIES=1, CARD_REHASH_RUNS=1, WIDE_*=1, BACK_OWN_VIEW=1) padł w 3D tak
+samo jak `-Gate on` — `0x887A0005`→`0x887A0007` po ~2 min 18 s. Brama
+`RELAY_SAFE=1` (serializacja kolejki, Agent M) była uzbrojona w tdr-on i nic
+nie zmieniła. **Rodzina relay/late/async/queue2 nie jest ani konieczna, ani
+wystarczająca do resetu** — H5 pada. Uwaga na pułapkę z 25.11: „safe-mem i
+dred przeżyły 3D” — przeżyły, bo miały wspólne *coś innego* (build main,
+brak UNCAP/REFRESH/BORDERLESS, brak rodziny JOIN/WIDE/CARD), nie dlatego, że
+miały relay off. Prawdziwym rozróżnieniem jest zbiór wspólny padających runów
+3D (patrz sekcja 8, tabela prawdy).
 
 „Stabilny profil” z `EXPERIMENTS-2026-11-25.md` (relay=0, join/gather/back off,
 library map off, texture 4096, card 768) przetrwał 150 s przy 7,7 GB. To za krótko:
@@ -149,10 +157,14 @@ może cofnąć inne poprawki. Najpierw DRED i profil bezpieczny.
 
 `TdrDelay`, `TdrDdiDelay`, `TdrLevel` nie są ustawione → obowiązuje domyślne
 2 s. W czytelnym System log nie ma 4101/4102, ale DxgKrnl-Operational jest
-niedostępny bez podniesienia uprawnień. `0x887A0007` to DEVICE_RESET, nie
-DEVICE_HUNG; reset mógł nastąpić od razu po błędnym poleceniu/view albo po
-wcześniejszym zawieszeniu. Podnoszenie `TdrDelay` tylko wydłuża ewentualny
-hang i maskuje problem; nie jest fixem.
+niedostępny bez podniesienia uprawnień. **Aktualizacja 26.11:** nocne utraty
+(3/3) logują przed `0x887A0007` serię `0x887A0005` = `DXGI_ERROR_DEVICE_HUNG`
+przy tworzeniu „shared buffer” / „read-back buffer” — urządzenie **zawisło**
+na wcześniejszych submissionach, a hang wychodzi dopiero przy kolejnej operacji
+hosta. To jest klasyczny TDR (2 s), w przeciwieństwie do crashu 2 (wait 15,9 ms).
+`0x887A0005` jest teraz najwcześniejszym sygnałem — dodaj go do watchdogów.
+Podnoszenie `TdrDelay` tylko wydłuża ewentualny hang i maskuje problem; nie
+jest fixem.
 
 ### 7. Zasilanie, termika, hybryda
 
@@ -169,21 +181,70 @@ Są dwa realne czynniki systemowe:
   zarządzanie pamięcią. Jeśli Legion Space/Vantage ma MUX, test „dGPU only”
   jest wart osobnego A/B (wymaga restartu), ale nie jest pierwszym krokiem.
 
+### 8. Noc 26.11: tabela prawdy 3D (co różni padające od survivoa)
+
+Źródła env: `Launch-VItoriaBr-AB.ps1`, `Launch-TDR-Gate.ps1`, `Launch-VItoriaBr-SafeMem.ps1`,
+`Launch-VItoriaBr-DRED.ps1`. Runy z resetem 3D: tdr-on, tdr-safe, opt-new (noc).
+Survivor 3D: dred (main diag). SafeMem nie liczy się do tabeli resetu — padł
+AV-em, zanim reset zdążył wystąpić (osobny objaw).
+
+| Przełącznik | tdr-on | tdr-safe | opt-new | dred (survivor) |
+|---|---|---|---|---|
+| Build | VItoriaBr-tdr | VItoriaBr-opt | VItoriaBr-opt | **VItoriaBr main (diag)** |
+| DEBUG/DRED | — | — | — | **1/1 (warstwa i tak brak)** |
+| RELAY/QUEUE2/ASYNC/LATE | ON + RELAY_SAFE=1 | **OFF** | ON | OFF |
+| UNCAP | (env, bez efektu: 33,3 ms) | **ON (16,67 ms)** | **ON** | OFF (33,3 ms) |
+| REFRESH=120 | tak | tak | tak | **nie** |
+| BORDERLESS | nie (brak linii) | **tak** | **tak** | nie |
+| VICTORY_KEYS | tak | tak | tak (późne) | **nie** |
+| XMEM_BATCH=0 | tak | tak | nie | nie |
+| CARD_ACCOUNTING=1 | tak | tak | tak | **nie** |
+| JOIN_COPIES=1 | tak | tak | tak | **nie (0)** |
+| CARD_REHASH_RUNS=1 | tak | tak | tak | **nie** |
+| WIDE_REFRESH/MERGE=1 | tak | tak | tak | **nie** |
+| WIDE_BACK=1 | tak | tak | tak | **nie** |
+| BACK_OWN_VIEW=1 | tak | tak | tak | **nie (0)** |
+| CARD_BUFFERS_MIN_MB=1 | tak | tak | tak | **nie** |
+| BVH_BUILDER=0 | tak | tak | tak | **nie (default)** |
+| CARD_FETCH_INFLIGHT=0 | tak | tak | tak | **nie (default)** |
+| PAGE_WRITES=slots / COPY_PLAIN / TEXTURE_NO_WAIT / SHADER_LOOP=256 / LEVELS_ON_DEMAND / STAGING_POOL / Arm B / WAVE32+VIEW_LIMIT / AMBIENT=0 / 720p / budżety | tak | tak | tak | tak (te same!) |
+
+Najmniejszy zbiór podejrzany wspólny **wszystkim padającym 3D i nieobecny w
+survivorze**:
+
+> **S = { build opt/tdr, KEYS, REFRESH=120, UNCAP (2/3), BORDERLESS (2/3),
+> CARD_ACCOUNTING=1, JOIN_COPIES=1, CARD_REHASH_RUNS=1, WIDE_REFRESH/MERGE/BACK=1,
+> BACK_OWN_VIEW=1, CARD_BUFFERS_MIN_MB=1, BVH_BUILDER=0, CARD_FETCH_INFLIGHT=0,
+> XMEM_BATCH=0 (2/3) }**
+
+Uniewinnione jako warunek wystarczający (były w survivorze): cała rodzina
+relay (i tak odrzucona), PAGE_WRITES=slots, COPY_PLAIN, TEXTURE_NO_WAIT,
+SHADER_LOOP_LIMIT, LEVELS_ON_DEMAND, STAGING_POOL, Arm B, WAVE32/VIEW_LIMIT,
+AMBIENT=0, 720p, limity budżetów. Menu-stable (2 h / 4 h) z całym zbiorem S
+bez wejścia do 3D → sam S nie zabija w menu; wejście do świata jest wyzwalaczem.
+
+Podział zbioru S na hipotezy robocze (H7a–d) i kolejność bisectu: patrz
+„D2 — bisect bez DRED”.
+
 ## Hipotezy i testy rozstrzygające
 
 | ID | Hipoteza | Pewność | Dowód | Test rozstrzygający |
 |---|---|---|---|---|
 | H1 | Nieobsługiwany/błędny view tekstury w `draw.rs::heap_textures` resetuje device | średnia (niżej niż wcześniej: safe-mem prowadził pass tekstur 2,5 min bez resetu) | crash 2 wykryty dokładnie w tej pętli; ostatni view to placed 2D BC1 1024×1024; komentarz w kodzie „a texture view the host refuses removes the device” | `VICTORY_HEAP_TEXTURES=0` na 15 min: brak resetu = H1; obraz będzie niekompletny |
-| H2 | Wcześniejsze submission zawiesiło GPU i sterownik zresetował device | średnia-wysoka | 18 164 started / 18 163 finished; crash 3 przy 1 submission/1 list; brak 4101 w czytelnym logu; DxgKrnl niedostępny | D1: build diag + DRED + debug layer na konfiguracji crashu 3; GBV off |
-| H3 | VRAM/commit na 8 GB/16 GB powoduje failed allocation/view i reset | niska-średnia (spadła) | 7,7 GB / 8,0 GiB w crashu 2, ale safe-mem 5,1 GB i dred 53 MB free bez utraty urządzenia | S2/S3: VRAM <7,2/<6,5 GB; jeśli reset znika dopiero poniżej progu = H3 |
+| H2 | Submission zawiesiło GPU i sterownik zresetował device (TDR) | **wysoka — sygnatura potwierdzona** | nocne runy 3/3: `0x887A0005` (DEVICE_HUNG) przy tworzeniu shared/read-back buforów → `0x887A0007`; hang jest faktem, pytanie brzmi co go powoduje | D1 (DRED nazwie komendę) i D2 (bisect zbioru S); oba prowadzą do treści submission |
+| H3 | VRAM/commit na 8 GB/16 GB powoduje failed allocation/view i reset | niska-średnia | 7,7 GB / 8,0 GiB w crashu 2, ale safe-mem 5,1 GB i dred 53 MB free bez utraty urządzenia | S2/S3: VRAM <7,2/<6,5 GB; jeśli reset znika dopiero poniżej progu = H3 |
 | H4 | Regresja sterownika 617.14 (placed/BC1/library) | średnia-niska | nowy driver; brak `nvlddmkm`; library `0x80070057` | A/B clean install / OEM/previous driver, 2×30 min |
-| H5 | Wyścig relay/queue2/late/async wokół wysyłania i copy-back | **średnia-wysoka (nowa najwyższa)** | 3/3 utraty z `RELAY=1` lub `LATE_WAIT=1`; 2/2 runy 3D bez tej rodziny przeżyły większe copy-back (1637/2491 ms) i niższy VRAM (53 MB free) | D1 (DRED repro na konfiguracji crashu 3) + bisect D1a/D1b/D1c: `RELAY`, `QUEUE2`, `LATE_WAIT` pojedynczo |
+| H5 | Wyścig relay/queue2/late/async wokół wysyłania i copy-back | **ODRZUCONA (noc 26.11)** | tdr-safe (relay family OFF) padł w 3D identycznie; `RELAY_SAFE=1` nie pomógł; 2/2 rodziny padają | — (brak dalszych testów; oszczędza czas) |
 | H6 | ASPM/termika/hybryda | niska | brak thermal throttle; ASPM max; Gen1 w idle | ASPM Off + High Performance + (opcjonalnie) dGPU-only; 30 min |
+| H7a | **Build opt/tdr** (Agent A: odroczenie tabel buforów + patch stagingu) zawiesza GPU w 3D | **wysoka (3/3 vs 1/1)** | wszystkie padające 3D na opt/tdr; jedyny survivor 3D na main (diag); menu na opt stabilne godzinami | D2-1: main **release** + env tdr-safe + KEYS, 5 min |
+| H7b | **Prezentacja/pacing** (UNCAP + REFRESH=120 + BORDERLESS) zmienia kadencję submit/present i wyzwala hang | średnia-wysoka | 3/3 padające zgłaszały 120 Hz, 2/3 biegło 16,67 ms uncapped; survivor: 33,3 ms okno | D2-2/3/4: UNCAP → REFRESH → BORDERLESS pojedynczo, 5 min każdy |
+| H7c | **Rodzina scalania JOIN/WIDE/CARD** (JOIN_COPIES, CARD_REHASH, WIDE_*, BACK_OWN_VIEW, CARD_BUFFERS_MIN_MB, BVH_BUILDER=0, CARD_FETCH_INFLIGHT=0, CARD_ACCOUNTING) | średnia-wysoka | 3/3 padające miały cały zestaw; survivor nie miał żadnego; SafeMem (zestaw off) nigdy nie dostał resetu (padł AV-em) | D2-5…12: pojedyncze toggli, 5 min każdy |
+| H7d | **Env DEBUG=1 sam chroni** (efekt uboczny diagnostyki, nie DRED — warstwa i tak była martwa) | średnia | survivor miał DEBUG/DRED ustawione; reszta setu też inna, więc efekt nie odseparowany | D2-0: kontrola — env padający + `D3D12_DEBUG=1` (bez DRED), 5 min |
+| H8 | Trzeci AV (read na commitowanej stronie, podejrzenie PAGE_GUARD) — osobny objaw | — | noc 05:55; deterministyczne AV-y naprawione VEH-retry, został trzeci | inny agent; D2 traktuje AV jako „brak danych o resecie” |
 
-Kolejność: **H5 przez D1** (DRED repro na konfiguracji crashu 3) → **H2**
-(ta sama faza: breadcrumbs nazwą komendę/list) → **H1** (S1-H) → **H3** (S2) →
-**H4** (S3) → **H6**. Nie łącz kilku hipotez w jednym runie, bo tracisz
-możliwość przypisania wyniku.
+Kolejność: **D2 (bisect zbioru S: D2-0 → D2-1 → … → D2-12)** → **D1 (DRED po
+Graphics Tools)** → **H1** (S1-H) → **H3** (S2) → **H4** (S3) → **H6**.
+H5 jest zamknięta. Nie łącz kilku hipotez w jednym runie — jeden toggle na run.
 
 ## Macierz stabilności
 
@@ -191,9 +252,9 @@ możliwość przypisania wyniku.
 |---|---|---|---|---|---|
 | S0 | referencja agresywna (to, co crashuje) | `RELAY=1`/`LATE_WAIT=1`, join/gather/back wg runu, library map=1, texture 4096, card 768 | odtwarza reset w ≥2 runach | wysoki | crash oczekiwany; nie powtarzać bez potrzeby |
 | S1 | **bezpieczny 8 GB** | relay/late=0, join/gather/back=0, async/queue2=0, library map=0/lock=1, texture 3072, card 512, staging 256, inplace 2048, levels=1, fill_wait=1 | cel 6,8–7,2 GB; wolniej; mniej kopii w locie; jeśli >7,4 GB → S2 | brakujące tekstury, dłuższe streamingi | 30 min bez resetu, VRAM p95 <7,2 GB, brak nowego `nvlddmkm`/4101, frame log ciągły |
-| S1b | **bezpieczny 8 GB v2 (nowy baseline)** | jak S1, ale `JOIN_COPIES=1`, `CARD_REHASH_RUNS=1`; relay/late/async/queue2 nadal 0 | ogranicza liczbę kopii i passów hashowych bez dodawania wątków; w safe-mem przy obu off było 10 171 kopii / 303 MB na klatkę i 685 passów hash | `JOIN_COPIES` był kiedyś podejrzany; jeśli S1b crashuje, wróć do S1 i bisect sam join | 30 min bez resetu; usual-frame copies <50 ms, copy-back <100 ms; VRAM p95 <7,2 GB |
-| D1 | **DRED repro crasher (celowy crash)** | dokładna konfiguracja crashu 3: `RELAY=1`, `LATE_WAIT=1`, `ASYNC_SUBMIT=1`, `QUEUE2=1` + te same limity pamięci co run opt+memory; build diag, `D3D12_DEBUG=1`, `D3D12_DRED=1`, `CARD_METER=1`, GBV=0 | przy utracie breadcrumbs/debug layer nazwie komendę i list; card meter pokaże, który list zawisł | wysoki (celowy crash) | crash w ≤15 min z nazwaną komendą; brak crasza = konfiguracja nie deterministyczna, przejdź do bisectu D1a/D1b/D1c |
-| D1a/D1b/D1c | bisect rodziny relay | pojedynczo: D1a `RELAY=1`; D1b `QUEUE2=1`; D1c `LATE_WAIT=1` — reszta off | izoluje, który przełącznik odtwarza reset | średni | 15 min na wariant; crash = winowajca |
+| S1b | **bezpieczny 8 GB v2 — NOCĄ ODRZUCONY JAKO BASELINE** | jak S1, ale `JOIN_COPIES=1`, `CARD_REHASH_RUNS=1`; relay/late/async/queue2 nadal 0 | tdr-safe (≈S1b + UNCAP/BORDERLESS/KEYS) padł w 3D; łączenie kopii nie chroni, a jest w zbiorze S | — | — (superseded przez D2; S1 zostaje jako profil „wolny od S”, ale sam nie wystarcza) |
+| D1 | **DRED repro crasher (celowy crash)** | build **main diag** + `D3D12_DEBUG=1`, `D3D12_DRED=1`, `CARD_METER=1`, GBV=0; konfiguracja tdr-safe + KEYS (nie tylko relay) | przy utracie breadcrumbs/debug layer nazwie komendę i list; card meter pokaże, który list zawisł | wysoki (celowy crash) | crash z nazwaną komendą; warunek wstępny: Graphics Tools (`0x887A002D` naprawiony) |
+| D2 | **bisect zbioru S bez DRED** | sekwencja D2-0…D2-12: jeden toggle na run, 5 min, start od env tdr-safe + KEYS | zawęża zbiór S do minimalnego zestawu przyczynowego | niski-średni (celowe crashe) | patrz protokół D2 poniżej |
 | S1-H | S1 + wyłączona pętla tekstur | `HEAP_TEXTURES=0` | jeśli brak resetu, H1 potwierdzona; obraz niekompletny | tylko diagnostyka | 15 min bez resetu |
 | S2 | S1 + twardy headroom | texture 2560, card 256, targets 2560, inplace 1024, staging 128, reupload_when_full=0 | VRAM <6,5 GB; więcej odmów tekstur | brakujące tekstury, możliwe braki targetów | 30 min bez resetu; akceptacja wizualna |
 | S3 | S1 + izolacja biblioteki | `LIBRARY_MAP=0`, `LIBRARY_HANDLE=0`, `LIBRARY_LOCK=1`, `PIPELINE_WAIT_MS=1000` | mniej wyścigów mapowania; wolniejsze PSO | dłuższe ładowanie | 30 min bez resetu; brak burzy `did not load` |
@@ -201,20 +262,25 @@ możliwość przypisania wyniku.
 | S5 | diagnostyka TDR (nie fix) | `TdrDelay=10` | zamienia reset w dłuższy hang, jeśli to timeout | systemowy; nie zostawiać | tylko gdy wait >2 s; revert po teście |
 | S6 | A/B sterownika | clean 617.14 vs OEM/previous | jeśli regresja, brak resetu | czas, inne regresje | 2×30 min na wersję |
 
-S1b jest profilem wyjściowym; S1 zostaje jako fallback (bisect `JOIN_COPIES`).
-S1-H i S2 są do rozstrzygnięcia H1/H3, nie do normalnej gry. S3/S4 są do
-odseparowania biblioteki i zasilania. D1 i D1a–c to diagnostyka TDR, nie gra.
-S5 nie jest rozwiązaniem.
+Po nocy 26.11 żaden profil z rodziny S1/S1b nie jest baseline'em: padają tak
+samo w 3D, gdy wejdzie się do świata. S1 zostaje jako punkt startowy D2 (baza
+środowiska). S1-H i S2 są do rozstrzygnięcia H1/H3, nie do normalnej gry.
+S3/S4 są do odseparowania biblioteki i zasilania. D1 i D2 to diagnostyka TDR,
+nie gra. S5 nie jest rozwiązaniem.
 
 ## Profil bezpieczny 8 GB (S1b)
 
-Ustaw w tej samej sesji PowerShell, w której uruchamiasz dotychczasową komendę
-gry. Nie zmieniamy runtime'u ani argumentów; wklej swoją zwykłą komendę po
-ustawieniu zmiennych. S1b = S1 z `JOIN_COPIES=1` i `CARD_REHASH_RUNS=1`: obie
-flagi **łączą** pracę (kopie tytułu, passy hash na karcie), nie dodają wątków
-ani submission; w safe-mem przy obu off kopie dobiły do 10 171 / 303 MB na
-klatkę i 685 passów hash. Jeśli S1b crashuje, wróć do `JOIN_COPIES='0'`
-(S1) i sprawdź, czy to join jest winny.
+> **Aktualizacja 26.11:** S1b jako baseline **poległ** — tdr-safe (≈S1b +
+> UNCAP/BORDERLESS/REFRESH/KEYS) padł w 3D po ~2 min 18 s (`0x887A0005`→
+> `0x887A0007`). S1b zostaje wyłącznie jako baza kroków D2; nie używaj go jako
+> „bezpiecznego profilu do grania” — menu jest bezpieczne, wejście w świat
+> nie. Ustaw w tej samej sesji PowerShell, w której uruchamiasz dotychczasową
+> komendę gry. Nie zmieniamy runtime'u ani argumentów; wklej swoją zwykłą
+> komendę po ustawieniu zmiennych. S1b = S1 z `JOIN_COPIES=1` i
+> `CARD_REHASH_RUNS=1`: obie flagi **łączą** pracę (kopie tytułu, passy hash
+> na karcie), nie dodają wątków ani submission; w safe-mem przy obu off kopie
+> dobiły do 10 171 / 303 MB na klatkę i 685 passów hash. Jeśli S1b crashuje,
+> wróć do `JOIN_COPIES='0'` (S1) i sprawdź, czy to join jest winny.
 
 ```powershell
 $env:VICTORY_RELAY='0'
@@ -464,6 +530,52 @@ bisectuj pojedynczo (reszta off, po 15 min na wariant):
 # D1c: $env:VICTORY_LATE_WAIT='1'   # (ASYNC_SUBMIT jako D1d, jeśli wyżej czysto)
 ```
 
+Uwaga 26.11: bisect D1a–c jest **przeterminowany** — rodzina relay jest
+wykluczona (tdr-safe padł z całą rodziną off). Zamiast tego użyj D2 poniżej;
+D1 zostaje jako „nazwij komendę” po instalacji Graphics Tools.
+
+### D2 — bisect zbioru S bez DRED (protokół nocny)
+
+Baza = `Launch-TDR-Gate.ps1 -Gate safe` (VItoriaBr-opt, relay family OFF,
+JOIN/WIDE/CARD wg skryptu, Arm B, UNCAP+BORDERLESS+REFRESH=120, KEYS) — znana
+deterministyczna śmierć `0x887A0005`→`0x887A0007` w ~2 min 18 s.
+
+Zasada każdego kroku: **jeden toggle na run, max 5 min od wejścia w 3D**.
+Decyzja: **padł (0x887A0005/0007)** → toggle niewystarczający sam w sobie,
+zostaw go zdjętym, przejdź dalej; **przeżył ≥5 min w 3D** → zdjęta zmienna
+jest w zbiorze przyczynowym → potwierdź jednym runem z powrotem (re-add), a
+potem kontynuuj stripping pozostałych. AV (trzeci objaw) = „brak danych”,
+powtórz raz; jeśli się powtarza, oznacz krok niekonkluzywny (fix innego
+agenta w toku). Koniec: profil „nic poza domyślnymi” = opt binary + default
+env + KEYS (KEYS zostają — to tylko wejście).
+
+```powershell
+# D2-0  KONTROLA: env tdr-safe + VICTORY_D3D12_DEBUG='1' (bez DRED)
+#       test H7d „env DEBUG chroni”. Przeżycie → mitigant; bisect dalej pod DEBUG=1.
+# D2-1  build main RELEASE (D:\git\VItoriaBr\target\release) + env tdr-safe + KEYS
+#       test H7a „gałąź opt”. Śmierć maina = H7a odpada; przeżycie = gałąź opt winna.
+# D2-2  UNCAP off (REFRESH=120 i BORDERLESS zostają)
+# D2-3  REFRESH=120 off
+# D2-4  BORDERLESS off
+# D2-5  CARD_ACCOUNTING=0
+# D2-6  JOIN_COPIES=0
+# D2-7  CARD_REHASH_RUNS off (usunąć z env)
+# D2-8  WIDE_REFRESH/WIDE_MERGE/WIDE_BACK off (jedna rodzina, jeden krok)
+# D2-9  BACK_OWN_VIEW=0
+# D2-10 CARD_BUFFERS_MIN_MB off
+# D2-11 BVH_BUILDER off (usunąć =0)
+# D2-12 CARD_FETCH_INFLIGHT off (usunąć =0)
+# D2-13 XMEM_BATCH off (usunąć =0)
+# D2-14 Arm B + STAGING_POOL off
+# D2-15 PAGE_WRITES default (usunąć 'slots')
+# D2-16 HOST_WAVE/VIEW_LIMIT off → koniec: opt binary + default env + KEYS
+```
+
+Kolejność jest od najbardziej do najmniej prawdopodobnego wg tabeli prawdy
+(sekcja 8): build → prezentacja → scalanie → reszta. Jeśli D2-0 przeżyje,
+H7d jest faktem i każdy kolejny krok prowadź z DEBUG=1, żeby mieć czyste
+porównanie.
+
 W logu szukaj:
 
 ```powershell
@@ -537,6 +649,7 @@ jeśli reset zostaje natychmiast, to nie TDR — wróć do H1/H2.
 
 | Sygnał | Próg | Akcja |
 |---|---|---|
+| `0x887A0005` (DEVICE_HUNG) w stderr | pierwszy wpis | najwcześniejszy sygnał nocnego hanga; wyprzedza `0x887A0007` o sekundy; przerwij i zapisz log |
 | `nvlddmkm` 153 / `Display` 4101/4102 | pierwsze zdarzenie | przerwij natychmiast; w innych runach utrata następowała 2,7–6,3 s później |
 | VRAM used | ≥7 300 MiB przez 3 próbki (6 s) | przerwij / obniż texture budget |
 | VRAM free | ≤500 MiB | przerwij |
@@ -563,6 +676,15 @@ sygnał.
   to, że sam VRAM wystarcza do resetu; mierz go dalej w każdym runie.
 - Nie traktuj braku crashey w safe-mem/dred jako dowodu stabilności profilu:
   oba runy trwały ≤5 min, a crash 3 wystąpił po ~2 min 44 s.
+- Nie wracaj do bisectu D1a–c (relay/queue2/late pojedynczo): rodzina relay
+  jest wykluczona nocą 26.11 (tdr-safe padł z całą rodziną off) — strata
+  3×15 min.
+- Nie traktuj „menu stabilne X godzin” jako dowodu bezpieczeństwa 3D: ten sam
+  env pada 2–3 min po wejściu do świata (opt-new: 4 h 16 min menu, 2 min świat).
+- Nie używaj S1b jako profilu do grania w świat: poległ nocą; to baza kroków D2,
+  nic więcej.
+- Nie myl trzeciego AV (read, PAGE_GUARD?) z resetem urządzenia: to osobny
+  objaw, inny agent; w D2 AV oznacza „brak danych o resecie”, nie „przeżycie”.
 - Nie obwiniaj termiki: 42–52 °C, brak HW thermal throttle.
 - Nie rób clean install sterownika przed DRED; najpierw dowiedz się, czy to
   page fault, błędny view, czy timeout.
@@ -575,39 +697,32 @@ sygnał.
 
 ## Następne kroki
 
-1. **D1 (DRED repro, celowy crash)** na konfiguracji crashu 3 — po instalacji
-   Graphics Tools (`0x887A002D`). Cel: breadcrumb/nazwana komenda przy
-   utracie; granica 15 min. To rozstrzyga H2/H5 jednym runem.
-2. **S1b, 30 min** — nowy baseline bezpieczny (`JOIN_COPIES=1`,
-   `CARD_REHASH_RUNS=1`, relay/late/async/queue2 off), snapshot + dmon +
-   frame log. Bramka: brak resetu, usual-frame copies <50 ms, copy-back
-   <100 ms, VRAM p95 <7,2 GB.
-3. Jeśli D1 nazwał komendę/view → fix w kodzie i powtórz D1. Jeśli nie
-   crashuje → **bisect D1a/D1b/D1c** (`RELAY` / `QUEUE2` / `LATE_WAIT`
-   pojedynczo, 15 min na wariant).
-4. Jeśli S1b crashuje: wróć do `JOIN_COPIES='0'` (S1); jeśli nadal crashuje:
-   **S1-H** (`HEAP_TEXTURES=0`) 15 min → H1.
-5. Jeśli S1-H crashuje: **S2** (twardy headroom) 30 min → H3; zmierz, przy
-   jakim VRAM znika.
-6. Jeśli S2 crashuje: **S3** (library isolation) 30 min → H4.
-7. Jeśli S3 crashuje: **S4** (ASPM Off/High Performance, ewentualnie MUX
-   dGPU-only) 30 min → H6.
-8. Jeśli nadal crashuje: **S6** A/B sterownika (clean 617.14 vs OEM/previous),
-   po 30 min na wersję.
-9. Dopiero po D1 zmieniaj kod runtime'u. Do tego czasu nie „naprawiaj”
-   przez kolejne flagi wydajnościowe.
+1. **D2 (bisect zbioru S, bez DRED)** — start: env tdr-safe + KEYS, sekwencja
+   D2-0…D2-16, jeden toggle na run, 5 min każdy. Najpierw D2-0 (kontrola
+   DEBUG=1), potem D2-1 (main release — test gałęzi opt). Kończy się profilem
+   „opt binary + default env + KEYS”. Cel: minimalny zbiór przyczynowy.
+2. **D1 (DRED)** po instalacji Graphics Tools (`0x887A002D`): build main diag,
+   konfiguracja z minimalnego zbioru z D2 + `CARD_METER=1` — nazwać komendę/list.
+3. Po nazwaniu komendy: fix w kodzie i powtórka D1; dopiero potem kod runtime'u.
+4. **S1-H** (`HEAP_TEXTURES=0`, 15 min) — domknięcie H1, gdy D2 zawęzi zbiór.
+5. **S2/S3** (headroom / biblioteka) — domknięcie H3/H4, jeśli D2 okaże się
+   pusty (profil „nic poza domyślnymi” nadal padnie).
+6. **S4/S6** (zasilanie / sterownik) — ostatnie.
+7. Do tego czasu nie „naprawiaj” przez kolejne flagi wydajnościowe.
 
 ## Otwarte pytania
 
-- Czy D1 (DRED na konfiguracji crashu 3) nazwie komendę/list? (H2/H5)
-- Czy `RELAY`, `QUEUE2` lub `LATE_WAIT` pojedynczo odtwarzają reset? (D1a–c)
-- Czy S1b (join copies + card rehash) trzyma 30 min i sprowadza
-  copies <50 ms / copy-back <100 ms w usual frame?
-- Czy `VICTORY_HEAP_TEXTURES=0` zmienia cokolwiek przy wyłączonej rodzinie
-  relay? (H1)
+- Czy D2-1 (main release) przeżyje 3D? Jeśli tak — gałąź opt (H7a) jest winna.
+- Czy D2-0 (env DEBUG=1) chroni? Jeśli tak — co dokładnie w nim chroni (H7d)?
+- Który z D2-2…D2-16 zatrzyma hang: prezentacja (UNCAP/REFRESH/BORDERLESS),
+  scalanie (JOIN/WIDE/CARD), czy coś z reszty? (H7b/H7c)
+- Czy minimalny zbiór z D2 + D1 (DRED po Graphics Tools) nazwie komendę? (H2)
+- Czy `0x887A0005` wystąpił też w crashach 1–3 (logi nocne vs dzienne)? (retrospektywa)
+- Czy `VICTORY_HEAP_TEXTURES=0` coś zmienia po zawężeniu zbioru S? (H1)
 - Czy `0x887A002D` znika po instalacji Graphics Tools? (warunek wstępny D1)
 - Czy reset występuje tylko powyżej ~7,3 GB VRAM? (H3, osłabione: 53 MB free
   bez resetu)
 - Czy `0x80070057` z biblioteki znika po odbudowie cache? (H4)
 - Czy `nvlddmkm` 153 jest w DxgKrnl-Operational, mimo braku w System? (wymaga admina)
 - Czy MUX dGPU-only zmienia cokolwiek? (H6, opcjonalnie)
+- Trzeci AV (PAGE_GUARD?) — status u drugiego agenta? (H8)
