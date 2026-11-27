@@ -54,3 +54,15 @@ allocation attempts hit the fatal path; today the same handler chooses its wait 
 
 xcl.toml currently carries `title_memory_mb = 28672` for the experiment — MUST be restored to 8192
 (or removed → device default) once the verdict is recorded, before any tuning run.
+
+## Dopisek (run 215736, budget 28672) + nowe swiatlo z 18-black-3d
+- Experiment 4: park przesuniety ~158s -> ~262s, commit urosni do 27.4 GB (tytul czyta budzet i
+  rozepcha rezerwacje), fps SREDNI spadek 2.7 (spill zjadl maszine). Budzet przywrocony do 8192.
+- 18-black-3d pozniej pokazal wlasciwa sciezke przyczynowa: gate uma.rs:796 (free commit
+  17291 < 17408 MB) -> window 512 MB -> ExecuteIndirect args poza UMA -> bind.rs:768 fail-closes
+  6498/19053 draws -> black 3D + fence-stall (park). Korelacja z budzetem byla wtorna.
+- XCL_COHERENT_MB omija gate calkowicie (uma.rs:788-790). Run w toku: XCL_COHERENT_MB=4096
+  (cap 4 GiB - GRAIN przy 4-window layout; MAX_SIZE=4096<<20-64K, RUNTIME_COMMITTED_CAP=512 MB).
+- Pelne 13 GB wymaga podniesienia pagefile (commit limit) + ew. XCL_UMA_WINDOWS=8/16+HEAP_WINDOWS=1
+  (5/13 coherent windows) - NIE robic bez wiekszego pagefile: 13 GB committed window na 16 GB RAM
+  to over-commit, do ktorego gate istnieje.
