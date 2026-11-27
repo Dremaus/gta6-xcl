@@ -301,3 +301,13 @@ Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`
 - Nastepny krok (bez builda): powiekszyc pagefile tak, by FreeVirtualMemory ≥ 18874368 KB
   (~18.4 GB), run 300 s + XCL_TRACE_FRAME=1 XCL_FRAME_DUMP=20. Bramki: brak WARN UMA,
   (0 skipped) do t≈180. Jesli czern przy 0 skips → falsyfikacja C → merge xcl-wt-ui.
+
+## Run 233509 (XCL_COHERENT_MB=4096): gate omijany, 0 skips - a 3D NADAL czarne
+- uma.rs:788-790: z env XCL_COHERENT_MB branch wroaca bez sprawdzania free_commit - 0 WARN UMA,
+  0 'outside unified memory', licznik console code so far: 37654 draws, **0 skipped**, coherent 3008/4095 MB.
+- Park nie zniknal (onset ~184 s), fps srednie 7.7. Cover art Lucia pelnoekranowo WIDOCZNY w t=126
+  (17.4 fps) - 2D OK; t=191 = pelna czern. non_dark=0 tylko w ostatnim dumpie (= klatka po parku).
+- WNIOSK: teoria C (fail-closed draws) ODRZUCONA jako przyczyna czarnego 3D. Zgodnie z drzewem
+  decyzji z 18: merge diagnostyki planow (1041d843 -> 5b77756f na main, ff-only, build 1m47s)
+  i run z XCL_TRACE_FRAME=1: pytanko rozstrzygajace - czy plane0 (gra) jest PEŁNY (bug kompozycji)
+  czy PUSTY (shadery 3D nic nie produkuja mimo wykonania).
