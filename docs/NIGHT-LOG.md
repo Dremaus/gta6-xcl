@@ -191,3 +191,27 @@ Append-only. One section per decision or gate. No game data, no paths inside the
   17 408 MB), albo `note_coherent_need` z poprzedniego runu powiększy okno.
 - Poprawka `uma.rs` (czyta prawdziwy commit przez `memcap::system_memory`) jest
   zbudowana — cap pamięci nie będzie już wyłączał unified memory.
+
+### Pięć agentów: co znalazły i co weszło na main
+- **Pamięć** (`agent/mem`): 92% stron tekstur leżało puste przy ładowaniu świata —
+  lazy level pages są teraz domyślne (`XCL_TEXTURE_LEVEL_PAGES=0` wraca do eager).
+  Szacunek: **4,6–6,8 GB mniej commit-u** (~18–19 GB). Plus sweep+retry przy
+  `CreateHeap` E_OUTOFMEMORY.
+- **Kolejka PSO** (`agent/pso`): prawdziwy błąd w `wait_for_memory` — po 60 s
+  wpuszczał *wszystkich* czekających naraz („thundering herd”), a preload był
+  nieograniczony. Nowa reguła `admission()` z podłogą `XCL_DXC_MIN_FREE_GB=2`,
+  cap preloadu `XCL_PSO_PRELOAD_CAP=2048`, licznik pokazuje realną pracę, nie
+  stand-iny.
+- **Dedup blobów** (`agent/pso`, 18291190): każdy z 58 731 pipeline'ów trzymał
+  własną kopię blobów shaderów. Teraz content-addressed `Arc<[u8]>`; 4 testy.
+- **Czarny ekran** (diagnoza): to **40 odrzuconych mesh PSO** (konsolowy MS sam
+  w slocie AS) — zgodne z upstream #541; a HEAD i tak nie wykonuje przetłumaczonych
+  MS/GS (brak #2092). Sam #541 nie wystarczy. To osobna, większa robota.
+- **Rozdzielczość**: `XCL_RENDER_SCALE` (patch) — zmniejsza tylko powierzchnię
+  prezentacji; obecny blit przy różnym rozmiarze robi crop, więc patch przechodzi
+  przez Compositor. Nie zmniejsza renderu 4K tytułu.
+- **Upstream**: weszły #1792 (strony sparse raz na run) i #1453 (wyciek allocatora
+  przy Reset). #1329/#1517/#1184/#1766 kolidują — do ręcznego rebase'u później.
+
+Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`,
+`ca43c24a`, `5441dabd`, `9b04264b`. Build 1m27s.
