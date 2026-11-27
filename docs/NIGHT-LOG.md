@@ -246,3 +246,29 @@ Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`
   aliasować `2k` (`agent/heap`, f419d1e3); drawów nie zmienia.
 - W `origin/nvidia-dev` jest niezbudowana w main seria 2^21 + null fill
   (1088d4e0, 23336dd5, 02a834a3, f93c9cbc, 09cf0e3d) — tylko gdyby slotów brakło.
+
+### #2052 + split any: fence naprawiony, zostały 4–5 molochów
+- **#2052** („a wait an earlier signal covers does not make a signal a cycle”)
+  wszedł na main (`0f4b36a5`). Po nim w logu **zero** linii cyklu fence i zero
+  watchdogów; wait’y są normalnie mostkowane do `queue.Wait`.
+- **`XCL_DIRECT_SPLIT_ANY=1`** (`7f1a617b`, próg 256 KB DXIL, domyślnie off):
+  `compute split: 111 programs split, 1101 pieces built, 144 chained dispatches`.
+- Pozostała ściana: 294 kompilacje sterownika na run, z czego **289 < 3 s**, ale
+  **5 ≥ 10 s** (maks. 25,7 s). To programy z **LDS**, których splitter nie dzieli.
+  Prezentacje stają na ~106–108 s, gdy te 5 wchodzi na ścieżkę krytyczną.
+- Każdy run loguje dla nich `driver blob absent` — czyli ich bloby nie trafiają do
+  cache. Agent sprawdza limit/połykanie błędu w `driver_cache`; jeśli naprawi,
+  kompilują się raz i problem znika bez splitu LDS.
+
+### Punkt odniesienia: pareto-residency (codec-d/cool_fox f4b48ad)
+- Repack „Recomp-InsaneRamZes” to dokładnie ten build (`victory.exe` 9,5 MB);
+  zbudowany z `Pavl3000/cgbj-fork` na `f4b48ad` — **identyczny rozmiar**.
+- Uruchomiony na naszym dumpie: Series S, RAM 3,63 GB, wszystkie importy
+  rozwiązane (`0 missing`), bez crashu przez 150 s.
+- Ich słabość: `no wave32 lowering for this wave64 program` → gubione dispatche
+  compute. XCL tłumaczy 26 698/26 698 — to nasza przewaga.
+- Ich preset `pareto-residency` (LEVELS_ON_DEMAND, CARD_REHASH_RUNS, THIN,
+  CARD_BUFFERS_MIN_KB=64, JOIN_PARTS=8, UPLOAD_AHEAD) potwierdza nasze kierunki:
+  lazy mipy i porównania na karcie.
+- Wniosek: XCL jako rekompilator + ich podejście do rezydencji; kod GPL-3.0
+  trzymany osobno, bez przenoszenia.

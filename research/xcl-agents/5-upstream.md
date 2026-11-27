@@ -73,3 +73,31 @@ Build (lock held, `CARGO_TARGET_DIR=D:\git\xcl\target`):
   it) if this branch is ever proposed upstream.
 - The 24 GB commit / 58k-pipeline death is not addressed by any single clean PR here: #1517 + the loading series is
   the load-time half, #1422/#1453 the leak half. There is no upstream equivalent of `memcap.rs`.
+
+## Addendum — #2052 applied on the integrated `main` (stall at ~116 s)
+
+Main at `b75c0f30` (dedup reverted, includes #1792 `5441dabd`, #1453 `9b04264b`, lazy pages `ca43c24a`, present
+`d5a6a191`). Worktree `D:\git\xcl-wt-fence`, branch `agent/fence`.
+
+- **Applies: yes, clean.** `git cherry-pick -x pr-2052` -> `4c93ab71cab24ee086972c7a17eed36483bdd181`
+  (upstream `b67c8f0c`), one file, `crates/xcl/src/hle/d3d12x/list_x.rs`, +68/-1. No conflict, nothing resolved.
+- **What it does:** in `would_signal_close_cycle` (list_x.rs:1289) the armed waits counted against a new signal are
+  now only those *not already covered*: `aw.val > max(submitted_max, cpu_signaled_max)`. Main maintains both
+  fields (list_x.rs:1497, 1587, 1802), so the term is complete here. The PR's test case is appended to
+  `pipelined_next_frame_write_is_not_false_cycle` and also asserts the true cycle is still detected.
+- **Build:** `cargo build --release -p xcl` under `D:\git\.xcl-build.lock` -> exit 0, 1m11s (3 pre-existing warnings).
+- **Test:** `cargo test --release -p xcl --lib -- pipelined_next_frame_write_is_not_false_cycle` -> 1 passed,
+  0 failed (device used only for `CreateFence`; no work submitted).
+- **Prerequisites: none.** #1983 is in main (`5760b899`). #1599 (DirectStorage `AutoSubmitDisabled`) is absent but
+  unrelated — it changes when a dstorage queue submits, not `Write64`/`Wait64` cell coverage.
+- **Watch in the next run:** the fixed run should no longer print
+  `D3D12.X: Write64 Signal at 0x... would close a GPU cycle (waiters=[...]) - signalled on CPU` (list_x.rs:1853) or
+  `Wait64 fence 0x... released on CPU ... to break mixed GPU cycle` (1518). Success shape: the `>= 0xa32` wait is
+  satisfied by the earlier 2606-stage signal and the run continues past 116 s with no watchdog line
+  (`GPU queue.Wait at ... did not complete within 5000 ms`, 1620). Failure shape to distinguish: the same wait
+  stalling **without** a cycle line -> a genuine ordering gap (likely `Write64` recorded but not submitted, not
+  #2052); watchdog fires -> the covering signal never reached the GPU, so the assumption behind the fix does not
+  hold on this title.
+- **Risk:** medium-low. The change can only stop XCL releasing a waiter early; if a covering signal was itself held,
+  the 5 s watchdog still releases it and logs, so the worst case is a logged stall rather than a silent hang.
+  Keep #2052 as its own commit so it can be dropped independently.
