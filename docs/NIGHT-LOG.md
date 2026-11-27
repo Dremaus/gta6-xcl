@@ -122,3 +122,18 @@ Append-only. One section per decision or gate. No game data, no paths inside the
   XCL trzyma zasoby tytułu w host-visible UMA („a texture lies in a GPU view of the
   title's CPU memory: kept in step”), więc commit rośnie razem z VRAM.
 - Następny test: `XCL_COHERENT_HEAPS=0` + `XCL_UMA_MB=512` (mniej mirroringu w RAM).
+
+### Run 2/3: to nie jest 3D — to loading z kolejką 57 488 PSO
+- `XCL_COHERENT_HEAPS=0` + UMA 512: commit nadal 24,2 GB (pamięć tylko przesunięta
+  z „target pages” do non-local). Świat 0,5 fps, crash po 116 s.
+- `title_memory_mb=4096`: commit 21,2 GB, crash po 100 s. `XCL_HOST_MEMORY_MB=8192`
+  (nowy patch: hook `GlobalMemoryStatusEx`) + UMA 1024: świat 3,0 fps, crash po 132 s.
+- **Screenshot `shots/xcl-lockhart-114918-117.png`**: ekran „Loading Story Mode”,
+  pasek XCL: `1.0 FPS | compiling shaders: 0 running, 0 done, 57488 pipelines queued`.
+  Czyli tytuł nigdy nie wchodzi do 3D — stoi na ładowaniu i buduje pipeline'y.
+- Tuż przed śmiercią: setki `CreatePlacedResourceX ... (0x8007000e)` = E_OUTOFMEMORY,
+  potem `D3D12 device removed: 0x887a0005`. To wyczerpanie VRAM/hosta, nie zły shader.
+- Wniosek: kolejka PSO XCL (preload „na zapas”, 57 488 pozycji) trzyma przetłumaczone
+  shadery i buduje je równolegle; karta 8 GB i 16 GB RAM nie wyrabiają.
+- Następny test: `XCL_PSO_PRELOAD=0` + `XCL_ASYNC_PSO=0` (buduj tylko to, czego
+  tytuł faktycznie używa, po jednym).
