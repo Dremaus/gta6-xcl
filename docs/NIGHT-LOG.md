@@ -272,3 +272,19 @@ Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`
   lazy mipy i porównania na karcie.
 - Wniosek: XCL jako rekompilator + ich podejście do rezydencji; kod GPL-3.0
   trzymany osobno, bez przenoszenia.
+
+## KOREKTA (21:5x-22:1x) - wycofanie 'tytul renderuje realna scene'
+- Obserwacja usera na zywo + zrzuty okien: xcl-lockhart-203520-146.png = pelny kolorowy artwork 2D
+  (okladka z Jasonem) przy 21 fps; 203520-177.png = calkowita czern; 213248-177.png = czern;
+  215736-273.png = tesieczowy szum (smieci bufora po zatrzymaniu petli).
+- METRYKA non_dark z frame dumpa liczyla piksele artworku 2D - NIE dowodzila sceny 3D.
+  Scena 3D NIGDY nie pokazala widocznego piksela w zadnym runie.
+- Nowa oś czasu: 2D (ladowanie) t=146 -> czern 3D t=150-177 -> park t=158-262.
+  Park jest prawdopodobnie KONSEQWENCJA nieudanej próby wejscia w 3D, nie niezalezna usterka.
+- Eksperymenty 1-4 (auth, host-RAM cap, network, inflated budget) - wszystkie opisane w
+  research/xcl-agents/16-budget-gate.md; budget zwiekszyl zasob prezentacji o ~100s (korelacja
+  slaba, ale kierunek zgodny z bramka budzetowa).
+- Odpalone sciezki tla: (1) patch uczciwego ksiegowania TitleMemoryStatus (agent, xcl-wt-memacct),
+  (2) diagnostyka 'dlaczego tylko 3D jest czarne' (agent read-only, raport 18-black-3d.md):
+  tropy - lustrowanie IB spoza UMA przy kazdym drawie, translacja depth/reversed-Z,
+  emisja outputu dwuprzebiegowego MS, kompozycja plane'ów (xcl-wt-ui 1041d843).
