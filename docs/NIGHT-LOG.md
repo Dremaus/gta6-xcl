@@ -181,3 +181,13 @@ Append-only. One section per decision or gate. No game data, no paths inside the
   tak jak `wait_for_memory`.
 - Następny test: bez capa, przy 18,1 GB wolnego commit (> 17 GB), żeby unified
   memory w ogóle zadziałało.
+
+### Run 8: 62 MB poniżej progu unified memory
+- Bez capa: `UMA: 17346 MB of commit free, under 17408 MB` — **zabrakło 62 MB**.
+  Coherent window zostało 512 MB, heaps GPU poza unified memory.
+- Commit 24 314 MB, `memory.load_percent=98`, OOM po 172 s. Ekran ładowania nadal
+  renderuje się poprawnie.
+- Wniosek: albo większy plik wymiany / zamknięcie jednej aplikacji (żeby przekroczyć
+  17 408 MB), albo `note_coherent_need` z poprzedniego runu powiększy okno.
+- Poprawka `uma.rs` (czyta prawdziwy commit przez `memcap::system_memory`) jest
+  zbudowana — cap pamięci nie będzie już wyłączał unified memory.
