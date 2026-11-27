@@ -87,4 +87,36 @@ jedynym sensownym presetem.
 - Wpływ `XCL_RECOMP_WINDOWS=1` na czas tłumaczenia w czasie gry.
 - Czy pozostałe ~3 000 programów ogona to rzeczywiście najcięższe translacje.
 
+## 6. Wskazówki z upstreamu (PR #2057, NVIDIA)
+
+PR `xcl-dev/xcl#2057` to gałąź referencyjna, nie do merge'a. Autor uruchomił na
+RTX 5090 nowszy build tytułu z:
+
+```
+XCL_DIRECT_DXIL=1 XCL_HEAP_WINDOWS=1 XCL_UMA_SHADOW=1
+XCL_COHERENT_HEAPS=sparse:16 XCL_LOOK_SKIP=1
+```
+
+Wynik: 30 fps w menu i intro, wejście do świata po 86–104 s, **5–10 fps w świecie**
+(2 446 i 2 012 klatek w dwóch runach 300 s), obraz szary z powodu odrzuconych
+pipeline'ów mesh w tamtym buildzie.
+
+W naszym HEAD `8b957bec`:
+
+| Zmienna | W HEAD | Uwaga |
+|---|---|---|
+| `XCL_DIRECT_DXIL` | jest | compute przez bezpośredni translator DXIL; w ścieżce PSO jest fallback do HLSL |
+| `XCL_HEAP_WINDOWS` | jest | zmienia okna tłumaczenia → zmienia klucz cache compute |
+| `XCL_COHERENT_HEAPS` | jest | `sparse:N` dla dużych heapów |
+| `XCL_UMA_SHADOW` | **brak** | PR #1329 |
+| `XCL_LOOK_SKIP` | **brak** | część gałęzi #2057 |
+| `XCL_PRECOMPILE_SLICE=i/n` | **brak** | wybiera co n-ty shader do prekompilacji |
+
+`#929` (reset listy tytułu, freeze po ~30 s w świecie) jest już w naszej historii
+(`06c9f550`). Nowe zmienne wymagałyby osobnej gałęzi XCL — kod XCL zostaje
+GPL-2.0-only i nie wchodzi do tego repo.
+
+Wniosek: kolejny pomiar A/B to `XCL_DIRECT_DXIL=1` przy niezmienionym cache
+compute (direct ma własną tożsamość wpisów, więc nie miesza się z HLSL).
+
 Wpisy uzupełniane po każdym zamkniętym runie; patrz `NIGHT-LOG.md`.

@@ -9,6 +9,8 @@ uruchamia binarkę tytułu natywnie i rekompiluje shadery RDNA2 do DXIL. Wybrana
 tym, jak zwykłe porty warstwy `victory` na tym sprzęcie zatrzymały się na ścianie
 16 GB RAM.
 
+Repo publiczne z tymi notatkami: <https://github.com/Dremaus/gta6-xcl>.
+
 ## Uczciwy stan wyjściowy
 
 To **nie jest** projekt, który obiecuje 30 fps w tej sesji. Obecne warstwy zgodności
