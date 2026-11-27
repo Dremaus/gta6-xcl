@@ -169,3 +169,83 @@ never takes `go_background` (direct `translated_*` path), so it is untouched;
 (`dispatch_chain.rs:94`); driver PSOs remain per built pipeline (bounded by the
 preload cap). The `XCL_ASYNC_PSO=0` run (1 draw/present, 0 dispatches) is a
 submit-side problem, not this queue.
+
+
+---
+
+# Driver blob cache: why the huge PSOs were not written
+
+Worktree `D:\git\xcl-wt-cache`, branch `agent/pso-cache`, commit **35606f33** on
+`main` 7f1a617b (worktree commit, not pushed). No game launched, no GPU work.
+
+## Evidence (xcl.log, run 18:15:44 - 18:20:44, XCL_RUN_SECONDS=300)
+
+- Five compute compiles >= 10 s, all `driver blob absent`:
+  `710108 B` 11.3 s, `694668 B` 11.0 s, `1161732 B` 23.3 s, `1167344 B` 22.9 s,
+  `1238616 B` 25.7 s. The first four wrote a `.chain.pso` at the exact finish
+  second, with these `GetCachedBlob` sizes (HRESULT S_OK; an empty/failed blob
+  is not stored):
+  `ad5dc` 988,846 B, `a998c` 966,542 B, `11ba04` 1,544,734 B,
+  `11cff0` 1,545,470 B, `12e658` 1,661,342 B.
+- The fifth (`965776 B`, start 298.674 s) has no finish line and no file: the run
+  was ended at 300.002 s before `GetCachedBlob`/write. A cut-short run cannot
+  cache the program it is still compiling; this is not a write error.
+- Filenames hash the **translated DXIL** (`fnv64(dxil)`), not the console record:
+  no name contains `50b71c6c227e4ea4`/`c1cffdc3f13a4f2f` (checked: 0). The 79
+  stable records are stable, but a name check by record hash is impossible.
+  Mapping is now logged: `GetCachedBlob ... returned N KB (hr 0x0)` and
+  `keeping ... as <path>` / `loading ... <path>` for every program >= 512 KB.
+
+## The recurring, write-side miss
+
+Two **graphics** PSOs (`c1cffdc3f13a4f2f`, 819,688 and 819,904 B DXIL) are
+`driver blob absent` in `xcl.prev.log` *and* `xcl.log`, and no `gfx-*-c81e8.pso`
+/ `-c82c0.pso` exists. They finish in 0 - 1 ms: the driver's own cache rebuilt
+them, so `driver_cache::keep` skipped the store under its only rule -
+`worth_keeping(took) = took >= 250 ms`. A 1.4 MB blob was therefore never
+written, and the next run asked again. This is the "rule that only stores
+builds over N ms"; the size was not considered.
+
+## Patch (2 files, +338/-46)
+
+- `driver_cache::worth_keeping(took, bytes)`: a blob at or over
+  `DIAG_BYTES` (512 KiB) is kept even when its build was fast; the fast build
+  only means the driver's cache was warm this time. Every skipped store now logs
+  the size and the reason (`FastAndSmall`, over-budget, unwritable with the OS
+  error from `write_result`).
+- The disk copy no longer depends on `COMPUTE_BLOBS` accepting the blob (its
+  512 MB budget): `keep_compute_blob`/`keep_graphics_blob` return the blob they
+  read, and the store site writes that. `GetCachedBlob`'s HRESULT and size are
+  logged for compute and graphics PSOs >= 512 KB; `read_pso_cached_blob_result`
+  keeps the HRESULT.
+- The same cache file is logged on write and on load, with `flags` and
+  `chained`, so a namespace mismatch (`.pso` vs `.chain.pso`) is visible.
+- Driver folder budget `XCL_PSO_DISK_MAX_MB` (4096; 0 = off): after a write the
+  oldest `*.pso` files are removed until the folder fits, tracked in
+  `ON_DISK`. Pure `trim_count(sizes_oldest_first, total, cap, incoming)`.
+- Chain-whole forms of huge programs are prewarmed on one low-priority
+  `xcl-pso-prewarm` thread (`XCL_PSO_PREWARM_MAX`, 8 per run, 0 = off) when no
+  `.chain.pso` exists, so the blob exists before a scratch-less dispatch needs it
+  and before a cut-short run ends. `scratch_for` retries a failed scratch
+  allocation with one group's worth (one dispatch per group) instead of falling
+  back to the whole PSO; the fallback, if any, logs allocator/bytes/grid.
+
+## Tests / build (under `D:\git\.xcl-build.lock`, atomic New-Item, released)
+
+- `cargo check -p xcl --lib --release`: OK.
+- `cargo test -p xcl --lib --release`: **1335 passed, 0 failed, 27 ignored**
+  (was 1334; +1 policy test, +1 prewarm test, +1 eviction test).
+  New: `a_big_blob_is_kept_even_when_the_driver_rebuilt_it_fast`,
+  `the_oldest_blobs_make_room_for_a_new_one_within_the_budget`,
+  `only_a_huge_whole_without_a_kept_blob_is_prewarmed`.
+- `cargo clippy -p xcl --lib --release`: only the two pre-existing
+  `approx_constant` errors (`gpu/dxil/lower_*.rs`) and pre-existing warnings;
+  no new warning in the touched code.
+
+## Expected next run
+
+The 819 KB graphics PSOs log `GetCachedBlob ... returned N KB (hr 0x0)` and
+`keeping ...` when first built, then `driver blob supplied` (~30 ms) instead of
+`absent`; the huge compute `.chain.pso` files already written are loads
+(~150 ms). Any remaining skip prints its size and reason, and the prewarm build
+means a 25 s whole compile no longer has to finish before the 300 s cut.
