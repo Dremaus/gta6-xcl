@@ -167,3 +167,17 @@ Append-only. One section per decision or gate. No game data, no paths inside the
 - Wniosek: ściana kompilacji jest realna, ale nie jest już jedyną. Po jej zejściu
   tytuł stoi w stanie „czekam” (czarny ekran). Następny trop: niewidzialne menu /
   brak inputu — test z przebiegiem Enter/Space/Esc/strzałki/kliknięcia.
+
+### Run 6/7: async wraca do OOM; cap pamięci sam psuje unified memory
+- `ASYNC_PSO` domyślne + `PSO_PRELOAD=0` + direct: ekran ładowania GTA VI renderuje
+  się poprawnie (`shots/xcl-lockhart-123956-145.png`), pasek:
+  `4.7 FPS | compiling shaders: 0 running, 0 done, 58731 pipelines queued`.
+  Commit 24 280 MB, `memory.load_percent=96`, OOM po 145 s.
+- `ASYNC_PSO=0`: stabilne, ale czarne (tytuł nie submituje świata).
+- **Błąd własnego patcha**: `XCL_HOST_MEMORY_MB` sprawiał, że `uma.rs::free_commit`
+  widział 4 GB zamiast 18 GB i XCL **wyłączał coherent window** (próg 17 GB):
+  „the title's GPU heaps stay outside unified memory”. To mogło pogarszać commit.
+  Poprawka: `uma.rs` czyta teraz prawdziwe wartości przez `memcap::system_memory`,
+  tak jak `wait_for_memory`.
+- Następny test: bez capa, przy 18,1 GB wolnego commit (> 17 GB), żeby unified
+  memory w ogóle zadziałało.
