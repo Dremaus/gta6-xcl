@@ -1,0 +1,106 @@
+# NIGHT-LOG — 2026-11-27/28
+
+Append-only. One section per decision or gate. No game data, no paths inside the title.
+
+## 2026-11-27 — Phase 0
+
+- Preflight after restart: no `victory.exe`, GPU idle (8 MiB), 6.2 GB RAM free, D: 103.6 GB.
+- Power scheme set to High Performance.
+- Cloned `https://github.com/fxceless/victory-fork` to `D:\git\victory-fork`.
+  - HEAD `4c60466` (2026-11-26 evening): "Pipelines: the pending-pipeline test expects a compute pipeline made at once now that dispatches wait for theirs (#1312)".
+- Read fork README (2026-11-26 23:15 UTC): 7.5–8.5 fps at the first boat mission on RTX 4070 12 GB / 32 GB; card is the wall at ~80 ms/frame; memory 23–27 GB RAM and 9.2–9.6 GB VRAM.
+- Fork already has wave64→32 forms: `VICTORY_WAVE_WIDE=1|last`, `VICTORY_WAVE_WIDE_ONLY=<hash>`, `VICTORY_LDS_FLAGS`. Diagnostics name our two water programs `5dc3b25986622949` and `6f225b641c5b0708`.
+- `--console series-s` is a known black picture in the fork (diagnostics run 304). **Series X only tonight.**
+- Decision: baseline the fresh fork before any Fix 2 work. Fix 2 becomes a targeted follow-up only if the fork still refuses compute pipelines.
+- Created `D:\Gry\VItoriaBr-data\fork.toml` (game/cache/data outside the repo).
+- Created `D:\Gry\VItoriaBr-data\night_harness_fork.py`: real keyboard input (`keybd_event`, not posted messages), screenshots, nvidia-smi CSV, GPU lock, RAM/VRAM gates, one JSON line per run.
+- Preset A cuts the fork's 12 GB budgets for 8 GB VRAM / 16 GB RAM:
+  `CARD_BUFFERS_MB=768`, `TEXTURE_BUDGET_MB=3072`, `INPLACE_MB=2048`,
+  `STAGING_POOL_MB=128`, `SCRATCH_SPARE_MB=64`, `QUEUE2_LANDING_MB=64`,
+  `CARD_FETCH_INFLIGHT_MB=32`.
+- Build started: `cargo build --release -p victory -j 4`.
+
+### Fresh-fork shader picture (from its own diagnostics)
+- `diagnostics/run-283-2026-11-26-debug-layer.txt` shows only **two** 64-lane compute refusals in the intro:
+  `2da4beb386509b77` and `369cbe906ea72764`. The older base refused all seven.
+- The two water programs `5dc3b25986622949`, `6f225b641c5b0708` are not dispatched in the intro;
+  `diagnostics/translate-water-5dc3-6f22-2026-11-26.txt` says `VICTORY_WAVE_WIDE=1` gives them
+  colour but dark patches.
+- Consequence: Fix 2 is now a **two-hash** follow-up, not a seven-hash project. Try
+  `VICTORY_WAVE_WIDE=last` first; only if it fails, extend the emitter.
+
+### Root cause found: the game was on the iGPU
+- First fork run died at frame 3027 with `0x8007000E` (OOM) while `nvidia-smi` showed **8 MB / 0 %**
+  on the RTX 4060 for the whole run.
+- `dxdiag`: AMD Radeon 780M (shared 7837 MB) and NVIDIA RTX 4060 Laptop (dedicated 7956 MB).
+- The registry `HKCU\Software\Microsoft\DirectX\UserGpuPreferences` had `GpuPreference=2` only for
+  `D:\git\VItoriaBr\target\release\victory.exe`. The new binary at
+  `D:\Gry\VItoriaBr-data\bin\victory-fork-plain.exe` had none, so DXGI gave it the iGPU.
+- The layer's "budget 6962 MB" was the 780M's shared memory, not the RTX.
+- Fix: `GpuPreference=2;` for the new binary and both `target\release\victory.exe` paths; fresh
+  cache `fork-cache-rtx` (the iGPU cache is not reused).
+- Also: `VICTORY_TEXTURE_BUDGET_MB=3072` bypasses the card-room test (the code returns
+  `filled < limit`), which is why textures overran the budget. Preset A now leaves it unset and
+  uses `VICTORY_TEXTURE_ROOM_PERCENT=85`.
+
+### RTX verified — and the next wall: host RAM
+- After `GpuPreference=2`, the RTX was used: 1.6 GB, 54 % busy, 46 °C, `draws=1176`.
+- Series X then died at `victory-image-b99f876b74d4a77f.dll+0x23cf683` (`write 0x0`), after
+  `this process has 15496 MB committed, the PC 1220 MB of memory free`.
+- Series S died at the **same title address**, `memory.load_percent=92`, process 13.2 GB,
+  PC as low as 16 MB free. Console profile does not cap what the title takes from the PC.
+- The crash reporter's `system.memory.total=16050548` (KB) matches the PC's 16 GB.
+- The title imports `api-ms-win-core-memory-l1-1-0.dll!GlobalMemoryStatusEx`; the layer had no
+  override, so the title plans for the whole PC.
+- Experiment: worktree `D:\git\victory-fork-memcap`, branch `fix/host-memory-cap`, adds
+  `GlobalMemoryStatusEx` (cap physical + page file, leave virtual) behind
+  `VICTORY_HOST_MEMORY_MB`; preset `memcap` also cuts the layer's own host copies
+  (`INPLACE_MB=512`, `TEXTURE_BUDGET_MB=1024`, `CARD_BUFFERS_MB=256`, staging/scratch/queue small).
+- Next run: `fork-s-memcap`, Series S, 1280×720, 10 GB cap.
+
+### Memcap result: not enough
+- `fork-s-memcap` (Series S, 10 GB reported, tight budgets) reached frame 3518 but stayed on the
+  black loading screen at 9 draws/frame; process 11.5 GB committed, PC 0.3–0.6 GB free, then
+  AppHangB1 and Windows closed it. No title AV this time.
+- Layer host copies were down to ~1.05 GB (texture budget 1024 MB worked), so the rest is the
+  title's own commit plus per-frame/list machinery.
+- `EmptyWorkingSet` on the OpenCode UI processes freed ~0 GB (6.31 → 6.28 GB); the agent's pages
+  are mostly shared/private and the game cannot reclaim enough that way.
+- Next: `fork-s-lean`, the old SafeMem memory shape on the fresh fork (relay/async/queue2/
+  back-own-view/gather/join/texture-back off, 2 GB texture budget, 1 GB in-place).
+
+### Pivot: XCL
+- Fork was stopped after the lean/Series S crash at the same title address; RAM is the wall on 16 GB.
+- Cloned `https://github.com/xcl-dev/xcl` to `D:\git\xcl`, HEAD `8b957bec`, built
+  `cargo build --release --workspace` in 2m13s → `target\release\xcl.exe`.
+- XCL facts that matter: 26 698 / 26 698 shaders translate; wave64 runs as two 32-lane halves on
+  NVIDIA; README reports ~5 fps in 3D on an RTX 5090, ~15 GB committed in the menus on a 32 GB
+  machine; `XCL_RUN_SECONDS`, `XCL_ACTIVITY`, `XCL_DEVICE_TYPE=anaconda|lockhart`,
+  `XCL_SKIP_BINK`, `XCL_FRAME_INTERVAL_US` are available.
+- DXC 1.9.2602.17 in the Windows SDK; game has `shaders.rpf` (411 MB) and `MicrosoftGame.Config`.
+- New harness `D:\Gry\VItoriaBr-data\night_harness_xcl.py`: runs `xcl run`, focuses the XCL
+  window, sends Enter after 120 s, screenshots every 2 min, then reads
+  `%LOCALAPPDATA%\XCL\<title>\logs\xcl.log` and computes fps from `activity (2 s): N presents`.
+- First run: `--seconds 600 --device lockhart` (Series S memory), 40-min wall cap.
+
+### Gate G0 (pending)
+- [ ] release binary exists and runs `--help`
+- [ ] harness smoke test: window, input, screenshot, lock
+- [ ] first world entry on preset A
+
+### Prekompilacja XCL: przyczyna stallu na 23 923 / 26 503
+- Cache DXIL jest resumowalny: `%LOCALAPPDATA%\xcl\dxil`, klucz z (wersja pakietu,
+  toolchain DXC, profil, entry, treść HLSL). Treść zależy od liczby okien pamięci
+  i splitu wave64, więc CLI musi używać `--windows 4` jak gra — inaczej 100% chybień.
+- Sonda `--precompile --windows 4 --limit 300`: `compiled 0, already cached 475`,
+  czyli klucz trafia.
+- Prawdziwa przyczyna stallu: `wait_for_memory` dopuszcza kompilacje DXC po wolnym
+  **commit** (`ullAvailPageFile`), nie po fizycznej RAM. Rezerwa: 6 GB dla działającej
+  gry, 2 GB dla `xcl shaders --precompile`. Przy 15 workerach i ~16 GB wolnego commit-u
+  wchodzą wszystkie naraz (~0,7 GB każda) → ~10 GB commit, brak fizycznej RAM, plik
+  wymiany, praca staje.
+- Fix bez patcha: `XCL_DXC_THREADS=4`.
+- Pomiar: 15 workerów — stall ~23 923, working set 5–6 GB, wolne 2–3 GB.
+  4 workery — 24 000/26 503 w 36 s, working set 1,7–1,9 GB, wolne 4–5,5 GB.
+- Wniosek: to nie był „zły shader”, tylko przeciążenie pamięci przy 15 równoległych
+  kompilacjach. Dokument: `docs/XCL-TUNING-8GB-16GB.md`.

@@ -1,12 +1,18 @@
-# GTA VI 30 fps — performance-first runtime research
+# GTA VI — performance-first runtime research
 
-Cel: uruchomić świat GTA VI (Xbox Series, build 1.0.2.1) na Windows w **min. 30 fps
-w rozgrywce** na laptopie RTX 4060 8 GB / 16 GB RAM / Ryzen 7 8845HS.
+Cel bieżący: **10 fps w rozgrywce** na laptopie RTX 4060 8 GB / 16 GB RAM / Ryzen 7
+8845HS. Cel docelowy pozostaje 30 fps, ale 10 fps jest pierwszą bramką, która
+odróżnia „działa” od „da się grać”.
+
+Droga wykonawcza: **XCL** (`xcl-dev/xcl`, GPL-2.0-only) — warstwa zgodności, która
+uruchamia binarkę tytułu natywnie i rekompiluje shadery RDNA2 do DXIL. Wybrana po
+tym, jak zwykłe porty warstwy `victory` na tym sprzęcie zatrzymały się na ścianie
+16 GB RAM.
 
 ## Uczciwy stan wyjściowy
 
 To **nie jest** projekt, który obiecuje 30 fps w tej sesji. Obecne warstwy zgodności
-są 5–150× poniżej celu:
+są nadal daleko od celu:
 
 | Źródło | Sprzęt | Wynik 3D |
 |---|---|---|
@@ -15,21 +21,23 @@ są 5–150× poniżej celu:
 | fxceless/victory-fork | RTX 4070 12 GB / 32 GB | 2–4 fps; 104 ms/klatkę przy 3 850 draws |
 | AnyXboxX | RTX 4070 Super | 4,8–5,4 fps; 6 550 draws |
 | XCL | RTX 5090 | ~5 fps w 3D |
+| **XCL (ten laptop)** | RTX 4060 8 GB / 16 GB | prekompilacja 26 503 shaderów opanowana; fps w świecie — pomiar w toku |
 
-30 fps = **33,3 ms/klatkę**. Najlepszy znany wynik na mocniejszym GPU to ~5–6 fps
-(167–200 ms). Na tym laptopie potrzebujemy ~5–10× więcej niż najlepszy projekt na
-mocniejszym sprzęcie. To nie jest kwestia jednego przełącznika.
+10 fps = **100 ms/klatkę**. XCL ma na tym sprzęcie dwie przewagi, których nie miały
+porty `victory`: tłumaczy 26 698/26 698 shaderów i ma gotowe wave64→32 (dwie połowy
+po 32 lane'y) dla NVIDIA. Wąskim gardłem okazało się nie GPU, a pamięć hosta przy
+prekompilacji — patrz `docs/XCL-TUNING-8GB-16GB.md`.
 
 ## Co ten projekt robi
 
-1. **M0 (ten etap):** inwentaryzacja projektów, budżet wydajności, plan, harness
-   pomiarowy. Bez obiecywania 30 fps.
-2. **M1:** wybór bazy (AnyXboxX `third_party/victory` lub fxceless/victory-fork)
-   i powtarzalny pomiar sceny.
-3. **M2:** cięcie kosztu CPU na draw (deskryptory, heaps, indirect, submit).
-4. **M3:** cięcie kosztu GPU (shadery, PSO, rozdzielczość, VRAM).
+1. **M0 (zrobione):** inwentaryzacja projektów, budżet wydajności, plan, harness
+   pomiarowy.
+2. **M1 (zrobione):** wybór bazy — XCL, po pomiarach `victory` na 16 GB RAM.
+3. **M2 (w toku):** opanowanie pamięci prekompilacji i uruchomienie świata na
+   8 GB VRAM / 16 GB RAM.
+4. **M3:** cięcie kosztu GPU (PSO, rozdzielczość, wave64→32, cache shaderów).
 5. **M4:** streaming i pamięć (8 GB VRAM / 16 GB RAM).
-6. **M5:** bramka 720p/30 fps albo udokumentowana ściana sprzętowa.
+6. **M5:** bramka 10 fps, potem 30 fps albo udokumentowana ściana sprzętowa.
 
 ## Native path — decyzja architektoniczna
 
@@ -47,19 +55,22 @@ mierzone „tak/nie”, a nie deklarację bez pokrycia.
 
 ## Baza i licencje
 
-- **Baza wykonawcza:** `AnyXboxX/third_party/victory` (najlepszy zmierzony świat:
-  4,8–5,4 fps na RTX 4070 Super) albo `fxceless/victory-fork` (najlepiej
-  udokumentowane optymalizacje: 104 ms/klatkę, 3 850 draws).
-- **Referencje, nie kopiowanie:** XCL (GPL-2.0-only — nie wolno kopiować kodu do
-  GPL-3.0), Leonida (GPL-3.0, static recompilation/SPIR-V), Xbox2Windows (MIT,
-  rekompilacja CPU/DXIL), omonkeyz (GPL-3.0, ogólny runtime), DexNom (Radeon).
-- Ten projekt: **GPL-3.0-or-later**.
+- **Baza wykonawcza:** `xcl-dev/xcl` — GPL-2.0-only. Uruchamiamy ją jako osobny
+  projekt/binarkę; **nie kopiujemy jej kodu do tego repo**.
+- **To repo jest tylko dokumentacją i narzędziami pomiarowymi:** GPL-3.0-or-later.
+  Kod XCL pozostaje GPL-2.0-only, a kod tego repo GPL-3.0 — dwie osobne całości,
+  bez mieszania.
+- **Referencje, nie kopiowanie:** `fxceless/victory-fork`, `AnyXboxX`,
+  Leonida (GPL-3.0), Xbox2Windows (MIT), omonkeyz (GPL-3.0), DexNom.
+- Żadnych plików gry, binarek ani danych pochodnych w repo — patrz `.gitignore`.
 
 ## Struktura
 
 ```
 docs/ARCHITECTURE.md        warstwy, decyzje, fakty o platformie
-docs/PERFORMANCE_BUDGET.md  budżet 33,3 ms i baseline
+docs/XCL-TUNING-8GB-16GB.md przełączniki XCL, cache shaderów, przyczyna stallu
+docs/NIGHT-LOG.md           dziennik decyzji i bramek (append-only)
+docs/PERFORMANCE_BUDGET.md  budżet klatki i baseline
 docs/NATIVE-VERTICAL-SLICE.md  plan native: replay-first, D3D12, selective AOT
 docs/PATH-TO-30FPS.md       bramki G1 5 -> G2 10 -> G3 20 -> G4 30
 docs/PROJECTS.md            porównanie projektów + skan topicu
