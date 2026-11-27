@@ -288,3 +288,16 @@ Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`
   (2) diagnostyka 'dlaczego tylko 3D jest czarne' (agent read-only, raport 18-black-3d.md):
   tropy - lustrowanie IB spoza UMA przy kazdym drawie, translacja depth/reversed-Z,
   emisja outputu dwuprzebiegowego MS, kompozycja plane'ów (xcl-wt-ui 1041d843).
+
+## PRZEŁOM 18-black-3d: przyczyna 'tylko 3D czarne' = commit gate okna UMA (agent, 21:xx)
+- uma.rs:796/813: jezeli host ma < 17408 MB wolnego commitu, okno coherent spada do fallback
+  512 MB i GPU-heaps tytułu laduja sie POZA UMA. W runach bylo 17291 MB — brakowalo ~117 MB.
+- ind.rs:768 fail-closes ExecuteIndirect(DispatchMesh) z argumentami poza UMA:
+  6498/19053 rysowan pominietych (WARNy capowane do 8, t=141.9/152.1 — tuz przed czernia).
+- Skutek: plane0 (1920x1080) pusty, widoczny tylko artwork 2D; stall fence t=168 = park.
+- Wyjasnia wszystkie wcześniejsze null-resulty: gate czyta maszyne z pominięciem capów
+  (memcap::system_memory) — dlatego XCL_HOST_MEMORY_MB nic nie dal; a budżet 28672
+  pogorszył run (więcej spillu → mniej wolnego commitu → gate łamie się szybciej).
+- Nastepny krok (bez builda): powiekszyc pagefile tak, by FreeVirtualMemory ≥ 18874368 KB
+  (~18.4 GB), run 300 s + XCL_TRACE_FRAME=1 XCL_FRAME_DUMP=20. Bramki: brak WARN UMA,
+  (0 skipped) do t≈180. Jesli czern przy 0 skips → falsyfikacja C → merge xcl-wt-ui.
