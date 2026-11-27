@@ -215,3 +215,17 @@ Append-only. One section per decision or gate. No game data, no paths inside the
 
 Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`,
 `ca43c24a`, `5441dabd`, `9b04264b`. Build 1m27s.
+
+### Po integracji: dedup wycofany, pamięć stabilna, ściana = 16 s na compute PSO
+- Pierwszy run z dedupem: `0xC0000005` po 76–96 s przy tworzeniu AS/PS. Dedup
+  wycofany (`b75c0f30`); AV nie wróciło.
+- Krok 1 (10 min): bez crashu, bez OOM, commit 21,4 GB.
+- Krok 2 (50 min, 3008 s): bez crashu, commit stabilny 21,4 GB, VRAM 8,85 GB
+  local + 4,26 GB non-local. Ale prezentacje ustały po ~116 s i do końca trwały
+  kompilacje sterownika:
+  `compute PSO, 897776 B DXIL, 16563 ms` — **16 s na jeden program**, tysięcy nie
+  ubyło w 50 min.
+- To nie DXC i nie pamięć: XCL dzieli compute tylko dla `numthreads == [32,1,1]`,
+  a konsolowe grupy 64-wide idą do sterownika w całości.
+- Krok 3: patch `XCL_DIRECT_SPLIT_ANY` (próg 256 KB DXIL) — dzielenie dowolnego
+  compute, o ile remap `thread id` jest poprawny; inaczej agent ma stopować.
