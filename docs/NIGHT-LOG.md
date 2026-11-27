@@ -152,3 +152,18 @@ Append-only. One section per decision or gate. No game data, no paths inside the
   Bez `XCL_DIRECT_DXIL=1` program 1,2 MB idzie do sterownika w całości.
 - Następny test: `XCL_DIRECT_DXIL=1` (compute przez direct, kawałki po ~12,5k
   instrukcji, każdy szybki do skompilowania).
+
+### Run 5: direct DXIL zmniejszył kompilacje, ale nie dał obrazu
+- `XCL_DIRECT_DXIL=1` + `PSO_PRELOAD=0` + `ASYNC_PSO=0`: 710 s bez crashu
+  (okno zamknięte ręcznie na końcu), commit spadł do 17 GB.
+- Direct zadziałał: **198 programów podzielonych na 1939 kawałków**; kompilacje
+  sterownika spadły z **870 do 64**. Ale największe nadal 143 s (DXIL 1,8 MB —
+  direct produkuje większy kod niż HLSL).
+- Kluczowe: ostatnia kompilacja sterownika kończy się o **367 s**, a ekran do 693 s
+  pozostaje czarny. Czyli po 367 s nic już nie kompiluje — tytuł po prostu nie
+  submituje pracy świata: 1 draw/prezentację, **0 dispatchy**, DirectStorage 0.
+- `compute split: 198 programs split, 1939 pieces built, 0 chained dispatches issued`
+  — łańcuchy istnieją, ale tytuł nigdy ich nie wywołuje.
+- Wniosek: ściana kompilacji jest realna, ale nie jest już jedyną. Po jej zejściu
+  tytuł stoi w stanie „czekam” (czarny ekran). Następny trop: niewidzialne menu /
+  brak inputu — test z przebiegiem Enter/Space/Esc/strzałki/kliknięcia.
