@@ -229,3 +229,20 @@ Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`
   a konsolowe grupy 64-wide idą do sterownika w całości.
 - Krok 3: patch `XCL_DIRECT_SPLIT_ANY` (próg 256 KB DXIL) — dzielenie dowolnego
   compute, o ile remap `thread id` jest poprawny; inaczej agent ma stopować.
+
+### View heap: nie gubimy drawów; stall to cykl fence
+- Analiza porównawcza z VIctory-NVIDIA (GPL-3.0, tylko pomysły): ich fix dotyczy
+  per-draw pooli deskryptorów i zwalniania tabel po zakończeniu GPU. XCL ma inną
+  budowę: jeden współdzielony heap 1M deskryptorów, brak per-draw pooli i brak
+  ścieżki gubienia drawów.
+- Dowód z logu: `12812 draws ... (0 skipped, 0 with PC pipelines), 8192 dispatches
+  (0 skipped)`; brak `shared heap (1000000) is full`. „1 draw/prezentację” to ekran
+  ładowania, nie świat.
+- `XCL_HEAP_WINDOWS=1` **nie jest** lekiem — dodaje okna UMA jako UAV, nie sloty view.
+- Prawdziwy stall: `Wait64BitValueX ... >= 0xa32` (2610) przy 2606 prezentacjach —
+  wait na wartość, która nie nadchodzi. To klasa błędu z upstream **#2052**
+  („a wait an earlier signal covers does not make a signal a cycle”).
+- Defensywny patch agenta: unplaced page wskazuje parę null SRV/UAV 0/1 zamiast
+  aliasować `2k` (`agent/heap`, f419d1e3); drawów nie zmienia.
+- W `origin/nvidia-dev` jest niezbudowana w main seria 2^21 + null fill
+  (1088d4e0, 23336dd5, 02a834a3, f93c9cbc, 09cf0e3d) — tylko gdyby slotów brakło.
