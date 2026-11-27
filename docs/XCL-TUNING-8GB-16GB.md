@@ -119,4 +119,36 @@ GPL-2.0-only i nie wchodzi do tego repo.
 Wniosek: kolejny pomiar A/B to `XCL_DIRECT_DXIL=1` przy niezmienionym cache
 compute (direct ma własną tożsamość wpisów, więc nie miesza się z HLSL).
 
+## 7. Start bez prekompilacji (patch lokalny)
+
+`xcl run` bezwarunkowo przechodzi przez `before_guest` → `prepare_for_launch`
+i prekompiluje **cały** pakiet. Zamknięcie okna ustawia `progress.cancel`, a host
+kończy się kodem 2 — nie da się „po prostu pominąć”.
+
+Lokalny fork XCL (GPL-2.0-only, poza tym repo) dodaje w `before_guest`:
+
+```
+if std::env::var_os("XCL_SKIP_PREPARATION").is_some() { return Ok(()); }
+```
+
+Brakujące programy tłumaczą się wtedy na żądanie i trafiają do tego samego cache
+DXIL. To nie zmienia poprawności — zmienia tylko moment kompilacji.
+
+## 8. Ściana pamięci (zmierzona)
+
+Run `xcl-lockhart-113146` (lockhart, RT off, `XCL_DXC_THREADS=6`, 900 s):
+
+| Moment | Klatki | fps | Commit procesu | Wolna RAM |
+|---|---|---|---|---|
+| 80 s (menu/ładowanie) | 1500 | 18,5 (z 300) | 18,9 GB | 0,2 GB |
+| 137 s (świat) | — | 1,0 (p50 świata) | **24,3 GB** | 0,83 GB |
+
+Tytuł zakończył się `0x80000003` — jego własny handler OOM (Breakpad zapisał
+minidump i `memory.load_percent=94`). Video: 13 655 MB local + 1 233 MB non-local
+na karcie 8 GB; target pages 7 423 MB, pools 7 552 MB, sparse 4 736 MB.
+
+To wyjaśnia, dlaczego „5 fps” z RTX 5090 nie przenosi się na 16 GB: u nas świat
+nie chodzi wolno, on chodzi **na pliku wymiany**. Kolejność prac: najpierw commit,
+potem fps.
+
 Wpisy uzupełniane po każdym zamkniętym runie; patrz `NIGHT-LOG.md`.

@@ -104,3 +104,21 @@ Append-only. One section per decision or gate. No game data, no paths inside the
   4 workery — 24 000/26 503 w 36 s, working set 1,7–1,9 GB, wolne 4–5,5 GB.
 - Wniosek: to nie był „zły shader”, tylko przeciążenie pamięci przy 15 równoległych
   kompilacjach. Dokument: `docs/XCL-TUNING-8GB-16GB.md`.
+
+### Run 1: tytuł wszedł bez prekompilacji, ale padł na pamięci
+- `xcl run` **zawsze** uruchamia okno „Shader preparation” i prekompiluje cały pakiet;
+  zamknięcie okna anuluje start (host zwraca 2). Nie ma przełącznika.
+- Lokalny patch w `D:\git\xcl` (GPL-2.0-only, poza tym repo): `XCL_SKIP_PREPARATION=1`
+  pomija przygotowanie; brakujące programy tłumaczą się na żądanie i trafiają do
+  tego samego cache. Build 1m20s.
+- Run `xcl-lockhart-113146` (900 s, lockhart, RT off, `XCL_DXC_THREADS=6`):
+  tytuł wystartował, **1500 klatek / 18,5 fps** po 80 s (menu/ładowanie),
+  potem świat spadł do **1 fps** (41 próbek < 15 fps) i po 137 s proces zakończył się
+  statusem `0x80000003` (własny handler OOM tytułu, Breakpad zdumpował minidump).
+- Stan przed śmiercią: **commit 24 342 MB** przy 16 GB RAM, `memory.load_percent=94`,
+  wolne 833 MB; video 13 655 MB local + 1 233 MB non-local na karcie 8 GB;
+  target pages 7 423 MB, pools 7 552 MB, sparse 4 736 MB.
+- Wniosek: shadery przestały być wąskim gardłem. Wąskim gardłem jest **pamięć hosta**:
+  XCL trzyma zasoby tytułu w host-visible UMA („a texture lies in a GPU view of the
+  title's CPU memory: kept in step”), więc commit rośnie razem z VRAM.
+- Następny test: `XCL_COHERENT_HEAPS=0` + `XCL_UMA_MB=512` (mniej mirroringu w RAM).
