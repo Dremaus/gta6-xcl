@@ -137,3 +137,18 @@ Append-only. One section per decision or gate. No game data, no paths inside the
   shadery i buduje je równolegle; karta 8 GB i 16 GB RAM nie wyrabiają.
 - Następny test: `XCL_PSO_PRELOAD=0` + `XCL_ASYNC_PSO=0` (buduj tylko to, czego
   tytuł faktycznie używa, po jednym).
+
+### Run 4: stabilne 54 fps, ale czarny ekran — i prawdziwa ściana
+- `XCL_PSO_PRELOAD=0` + `XCL_ASYNC_PSO=0`: **brak crashu**, pełne 420 s i 600 s,
+  ~9 400–28 700 klatek, p50 21–54 fps. Tytuł żyje.
+- Obraz czarny. Activity: **1 draw na 1 prezentację, 0 dispatchy**, DirectStorage
+  0 requestów po 35 s. To nie świat 3D — tytuł stoi.
+- `report.json`: 52 579 przetłumaczonych pipeline'ów, 0 failed, 0 fallback.
+- Prawdziwa przyczyna z logu: **870 kompilacji sterownika**, najdłuższe:
+  269 916 ms, 269 731 ms, 263 210 ms, 256 743 ms (DXIL 1,2–1,3 MB każdy),
+  `huge, ungated here (a title thread's...)`. Tytuł czeka na te kompilacje.
+- Dzielenie dużych compute na łańcuchy dispatchy (`XCL_DIRECT_SPLIT_INSTRUCTIONS`,
+  domyślnie 12 500 instrukcji) istnieje **tylko w backendzie direct DXIL**.
+  Bez `XCL_DIRECT_DXIL=1` program 1,2 MB idzie do sterownika w całości.
+- Następny test: `XCL_DIRECT_DXIL=1` (compute przez direct, kawałki po ~12,5k
+  instrukcji, każdy szybki do skompilowania).

@@ -151,4 +151,57 @@ To wyjaśnia, dlaczego „5 fps” z RTX 5090 nie przenosi się na 16 GB: u nas 
 nie chodzi wolno, on chodzi **na pliku wymiany**. Kolejność prac: najpierw commit,
 potem fps.
 
+## 9. Prawdziwa ściana: kompilacja sterownika (nie DXC)
+
+Po wyłączeniu preloadu PSO i asynchronicznego budowania tytuł przestał się wywalać,
+ale stał na czarnym ekranie: 1 draw na prezentację, 0 dispatchów, DirectStorage
+0 requestów. W logu:
+
+```
+driver compile finish #52579: compute PSO, 1297244 B DXIL, 269916 ms, huge, ungated here
+driver compile finish #52598: compute PSO, 1299596 B DXIL, 269731 ms, huge, ungated here
+driver compile finish #52580: compute PSO, 1238268 B DXIL, 263210 ms, huge, ungated here
+```
+
+870 kompilacji sterownika w jednym runie; największe po **4,5 minuty** na sztukę.
+To nie DXC (te liczy się w milisekundach), tylko sterownik NVIDIA na wielkich
+programach compute.
+
+Dzielenie takich programów na łańcuchy dispatchy istnieje w XCL, ale **tylko
+w backendzie direct DXIL** (`gpu/dxil/kernel.rs`, `XCL_DIRECT_SPLIT_INSTRUCTIONS`,
+domyślnie 12 500 instrukcji na kawałek). `XCL_PIPELINE_MAX_KB` ogranicza wyłącznie
+offline'owy pass `--pipelines` (pomija za duże), nie dzieli nic w runtime.
+
+Zalecany zestaw na 8 GB VRAM / 16 GB RAM:
+
+```
+XCL_DEVICE_TYPE=lockhart
+XCL_DIRECT_DXIL=1
+XCL_PSO_PRELOAD=0
+XCL_ASYNC_PSO=0
+XCL_DXC_THREADS=6
+XCL_UMA_MB=1024
+XCL_RAYTRACING=off
+XCL_SKIP_PREPARATION=1   # lokalny patch, patrz §7
+```
+
+`XCL_HOST_MEMORY_MB` (patch z §10) nie zmniejszył commit-u tytułu, ale zatrzymał
+jego watchdog OOM; zostaje jako zabezpieczenie.
+
+## 10. Patch lokalny: `XCL_HOST_MEMORY_MB`
+
+`hooks.rs` XCL ma gotowy mechanizm detourów (`retour`) na funkcje Windows.
+Lokalny fork dodaje `memcap.rs`: hook `kernel32!GlobalMemoryStatusEx` i
+`GlobalMemoryStatus` raportujący tytułowi `N` MB fizycznej pamięci i `1,5×N` MB
+pliku wymiany (stałe „50% zajęte”).
+
+Własna kontrola dopuszczania kompilacji XCL (`wait_for_memory`) musi widzieć
+prawdziwą maszynę, inaczej cap serializuje wszystkie kompilacje — dlatego
+`dxc.rs` woła `memcap::system_memory`, które omija detour.
+
+Efekt zmierzony: tytuł przestał kończyć się watchdogiem OOM przy
+`memory.load_percent≈93`, ale sam commit (21–28 GB) się nie zmniejszył — tytuł
+nie planuje alokacji z `GlobalMemoryStatusEx`. Patch jest więc zabezpieczeniem,
+nie lekiem na pamięć.
+
 Wpisy uzupełniane po każdym zamkniętym runie; patrz `NIGHT-LOG.md`.
