@@ -56,3 +56,22 @@ Wniosek: XCL u nich nie przeszedl problemu, ktory nas blokuje. Swiat renderuje t
 ## 6. Decyzja
 Hybryda: ich engine jako dzialajacy wzorzec i pomiar fps na tej karcie; XCL dalej jako nasz
 runtime, z wdrozonymi ideami (bez kodu GPL-3.0).
+
+## 7. Pierwszy dzialajacy obraz na tej maszynie (referencja)
+- v0.5.7, Series S, RT off, ustawienia z `play-scarlett.ps1` + `SCARLETT_FAST_BOOT=1`
+  + `SCARLETT_PIPELINE_BOOK=1`. Przebieg rejestrujacy trwal ~20 min (zabity po 900 s),
+  gra doszla do swiata i byla w celi z Lucia.
+- Zrzut ekranu (12:03 lokalnie): "Americas | ScarlettPort | **4 fps 238.6 ms/frame
+  2551 draws/frame**". To dolna granica: pipeline'y budowane na zywo.
+- `prepare` z ksiedze: 2147 pipeline'ow w 37 s (4 bez host pipeline). To nie jest pelne
+  25 200 - te ida z wlasnego cache gry przez `pipeline-cache --fill`.
+- W logu widac ich wlasne statystyki per-frame (np. 27,4 ms oczekiwania na karte,
+  24,7 MB wysylane, 43,3 MB ladowane, 5,1 ms odswiezania tekstur) - do porownania z naszym
+  `hold:`/`memory:`.
+
+## 8. Wniosek dla celu 10 fps
+- Na RTX 4060 Laptop 8 GB ich engine daje 4 fps w celi bez pelnej prekompilacji; ich wlasny
+  raport dla tej karty (v0.5.1) to 5-7 fps, a 12-13 fps mialo miejsce na RTX 3060 12 GB
+  po pominięciu BVH. Czyli 10 fps na tej karcie nie jest jeszcze osiagniete przez nikogo.
+- XCL: nasz bloker to nie shader, tylko VRAM/eviction (bufory two-pass) i jeden `pc_call`
+  trzymajacy tytol; test po poprawce buforow w toku.
