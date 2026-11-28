@@ -40,3 +40,22 @@ REA: nie dotyczy (logi wlasnego runtime'u; cel REA nadal bez providera Ghidra).
 ## 4. Nastepny krok
 - Przebieg z `XCL_D3D12_DEBUG=1` (w toku): komunikaty walidacji przy pierwszym mesh draw.
 - Jesli walidacja milczy: repro w tescie (sekundy na iteracje).
+
+## 5. Warstwa debug D3D12 niedostepna; nowe dowody z przebiegu 360 s
+- `XCL_D3D12_DEBUG=1`: "debug layer requested but unavailable: 0x887A002D" (brak zgodnego
+  D3D12SDKLayers.dll dla Agility SDK) - walidacji nie ma, trzeba by dolaczyc warstwe
+  z Windows SDK w wersji zgodnej z D3D12Core.dll.
+- Przebieg: TDR ~216 s, potem sterownik odrzuca compute PSO z 0x887a0005 (232 s), a `submit`
+  (ExecuteCommandLists) wisi 31-39 s ("hold: 2 PC call(s) ... oldest: submit"). Proces konczy
+  sie 0xC0000005 w kodzie tytulu. Czyli dlugi submit to skutek zawieszonego GPU, nie przyczyna.
+- Osobny, realny problem: 8 ostrzezen "a command list is submitted while its previous submit is
+  still on the GPU (debug layer id 553)" w fazie 2D (46-94 s). XCL ma mechanizm list zastepczych
+  (`alloc_pool.rs`, `list_x.rs`), ale obejscie sie wyczerpalo. Ponowny submit listy bedacej na GPU
+  jest nielegalny i moze zawieszac GPU - kandydat do zbadania niezaleznie od mesh.
+
+## 6. Ocena
+- Jeden DispatchMesh wystarcza, zeby pozniej zawiesic GPU; bez danych, bez PS, bez MSAA.
+- To nie jest blad pojedynczego shadera ani przeliczania rekordow: to stan/wiazanie two-pass
+  albo sterownik. Ich wlasny XCL wylaczyl two-pass domyslnie ("can reset the GPU") - ten sam mur.
+- Najkrotsza droga do odpowiedzi: minimalny repro w tescie (PSO + ABI RS + bufor rekordow +
+  jeden DispatchMesh + readback), iteracje w sekundach zamiast 5-minutowych przebiegow gry.
