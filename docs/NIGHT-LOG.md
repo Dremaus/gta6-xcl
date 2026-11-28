@@ -326,3 +326,9 @@ Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`
   RTX 4060 Laptop 5-7 fps (0.5.1). To nasz punkt odniesienia.
 - XCL: naprawiony rozmiar buforow rekordu two-pass (32 MB/liste -> realna potrzeba),
   etykieta pc_call. Szczegoly: research/xcl-agents/20-scarlettport-crossover.md
+
+## Two-pass mesh: hang systematyczny (jeden dispatch wystarcza, bez PS, bez danych)
+- Puste rekordy (=compute), brak PS (NO_PS), limit 1 dispatch: kazdy wariant TDR ~216 s.
+- EI i DM osobno tez wisza; cztery najczestsze MS pominięte - nadal.
+- Sample count 1; stany 3RT+DSV20, 0RT+DSV20, 5RT. DRED: fault VA 0x0, brak breadcrumbow.
+- Szczegoly: research/xcl-agents/21-two-pass-mesh-hang.md
