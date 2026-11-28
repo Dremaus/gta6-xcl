@@ -84,3 +84,19 @@ runtime, z wdrozonymi ideami (bez kodu GPL-3.0).
 - To jest odpowiednik tego, czego XCL nie ma: dziennika pipeline'ow tworzonych w runtime
   + offline'owej budowy. XCL po kilku przebiegach sam kumuluje bloby sterownika
   ("N driver blobs kept on disk"), ale bez pelnej listy stanow.
+
+## 10. Pomiar referencyjny po pelnej prekompilacji (ta maszyna)
+- RTX 4060 Laptop 8 GB, i9-13980HX, 16 GB, Series S, RT profile off, biblioteka 29 607 pipeline'ow.
+- Polling tytulu okna co 2 s, 400 s przebiegu, proby swiata (draws >= 500): **89 probek,
+  fps p50 = 6, min 1, max 20; ms p50 = 168,5**.
+- Wczesniej bez prekompilacji: 4,3 fps / 232 ms (z ich wlasnego summary).
+- Wniosek: ich engine jest najblizej celu, ale 10 fps na tej karcie nie osiaga; pozostaje
+  waskie gardlo kopii/oczek (ich wlasny profil: 26,7 ms GPU, reszta przygotowanie i kopie).
+
+## 11. XCL po poprawce buforow rekordu
+- 141 buforow / 363 MB (przed: 65 / 960 MB) - ~600 MB VRAM mniej w krytycznym momencie.
+- Two-pass nadal konczy sie TDR 0x887a0005 (~215 s); komunikat tuz przed: "two-pass MS ...
+  gets heap bases view ... (directly indexed: view false, sampler true)", a CreatePlacedResourceX
+  dostaje juz 0x887a0005 (GPU wisialo chwile wczesniej).
+- Passthrough MS jest ograniczony (nv/np <= 256, OOB czyta zera), wiec podejrzenie: PS czyta
+  zle deskryptory w stage'u two-pass. Nastepny krok: DRED + eksperyment z ograniczeniem grup.
