@@ -75,3 +75,12 @@ runtime, z wdrozonymi ideami (bez kodu GPL-3.0).
   po pominięciu BVH. Czyli 10 fps na tej karcie nie jest jeszcze osiagniete przez nikogo.
 - XCL: nasz bloker to nie shader, tylko VRAM/eviction (bufory two-pass) i jeden `pc_call`
   trzymajacy tytol; test po poprawce buforow w toku.
+
+## 9. Pelna prekompilacja ich engine'u (pipeline-cache --fill)
+- `ScarlettPort-Runtime.exe pipeline-cache <dump> --fill --jobs 8`: **29 607** pipeline'ow,
+  31 bez host pipeline, **2251 s** (~37,5 min), biblioteka **1064 MB** na dysku.
+- Czasy: mediana 3,5 ms, p90 1832 ms, p99 8020 ms, max 41 051 ms (pojedyncze ogromne mesh).
+- Wczesniej `prepare` z ksiedze przebiegu: 2147 pipeline'ow w 37 s.
+- To jest odpowiednik tego, czego XCL nie ma: dziennika pipeline'ow tworzonych w runtime
+  + offline'owej budowy. XCL po kilku przebiegach sam kumuluje bloby sterownika
+  ("N driver blobs kept on disk"), ale bez pelnej listy stanow.
