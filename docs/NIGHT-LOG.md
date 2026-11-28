@@ -317,3 +317,12 @@ Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`
   sparse), 101 s = xg.rs copy_from. Poprawka: VEH zero-page + title_bytes bez wskaznika pozyczonego.
 - 300 s bez AV (2 przebiegi). Dalej: 3D nadal czarne, prezentacje 0 od ~140 s, TDR 0x887a0005
   257-285 s. Szczegoly i kolejne kroki: research/xcl-agents/19-sparse-read-fault-and-mesh-hang.md
+
+## ScarlettPort v0.5.7: ich XCL ma ten sam czarny obraz, swiat renderuje tylko ich engine
+- engine = fork VIctory (GPL-3.0) -> tylko idee; runtime/xcl = XCL GPL-2.0 + patch.
+- Ich STATUS: XCL dochodzi do swiata i zyje 7+ min, ale finalny obraz czarny, a two-pass mesh
+  resetuje GPU (u nich domyslnie wylaczony). Czyli ta sama sciana.
+- Ich engine: 4 fps RTX 3060 (0.5.0), 7-8 (0.5.2), 12-13 z BVH input skip (0.5.6);
+  RTX 4060 Laptop 5-7 fps (0.5.1). To nasz punkt odniesienia.
+- XCL: naprawiony rozmiar buforow rekordu two-pass (32 MB/liste -> realna potrzeba),
+  etykieta pc_call. Szczegoly: research/xcl-agents/20-scarlettport-crossover.md
