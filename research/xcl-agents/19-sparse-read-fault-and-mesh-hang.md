@@ -43,3 +43,18 @@ ECC: agent-introspection-debugging (capture -> diagnoza -> izolacja). REA: nie d
    czy hang mesh znika.
 3. DRED bez breadcrumbow: dodac `SetMarker` wokol two-pass (juz jest dla SetPipelineState)
    albo `XCL_SKIP_TWO_PASS` per-PSO (bisekcja po hashu MS) zeby wskazac konkretny shader.
+
+## 4. Korekta: glowna bariera to commit systemu, nie sam shader (runy 092031, 092422)
+- Cieply cache sterownika: graficzne PSO kompiluja sie w ~7 ms, huge compute PSO 29 s -> 199 ms
+  (blob z dysku). Stall na kompilacji to koszt PIERWSZEGO uruchomienia, nie stan ustalony; `compute
+  split` juz obejmuje te PSO (`chained true`). Punkt 1 z listy kolejnych krokow odpada.
+- Run 092031: `command list Close -> 0x8007000e (E_OUTOFMEMORY)` o 162.79 s, potem 0x887a0005 i
+  0x887a0001 (device removed). Pierwszy raz widac OOM przed TDR.
+- Pomiar commitu systemu co 5 s (run 092422): limit 36.5 GB (RAM 15.7 + pagefile 20.8), przy
+  starcie gry INNE procesy/system trzymaja 18.5 GB; commit 31.4 GB po 21 s, 35.5/36.5 GB po 41 s;
+  pagefile rosnie na zadanie (limit 44.7 GB po ~180 s); wolny RAM ~300 MB przez caly przebieg.
+  Proces gry: 18.5 GB (60 s) -> 24 GB (160 s); VRAM local 9.6 GB na karcie 8 GB.
+- Wniosek: stall/OOM/TDR sa zgodne z ciaglym stronicowaniem przy commicie na limicie. Hang mesh
+  NIE jest wykluczony (izolacja skip=mesh nadal prawdziwa), ale test jest niemiarodajny dopoki
+  system nie ma zapasu commitu. Dzwignie: wiekszy staly pagefile (admin), mniej commitu bazowego,
+  mniejszy commit XCL (coherent 3.4 GB od startu, kopie CPU okien sparse 4-5 GB, nonlocal 4 GB).
