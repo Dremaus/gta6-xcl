@@ -311,3 +311,9 @@ Zintegrowane na `main`: `c122d162` (lokalne), `4dc5ded3`, `7d16f5f6`, `d5a6a191`
   decyzji z 18: merge diagnostyki planow (1041d843 -> 5b77756f na main, ff-only, build 1m47s)
   i run z XCL_TRACE_FRAME=1: pytanko rozstrzygajace - czy plane0 (gra) jest PEŁNY (bug kompozycji)
   czy PUSTY (shadery 3D nic nie produkuja mimo wykonania).
+
+## Run 085530 / 090140 (fix/sparse-read-fault): crash CPU naprawiony, zostaje blokada przy 3D
+- Symbolizacja dbghelp: crash 85 s = detile_level z title_textures (czytanie zdecommitowanej strony
+  sparse), 101 s = xg.rs copy_from. Poprawka: VEH zero-page + title_bytes bez wskaznika pozyczonego.
+- 300 s bez AV (2 przebiegi). Dalej: 3D nadal czarne, prezentacje 0 od ~140 s, TDR 0x887a0005
+  257-285 s. Szczegoly i kolejne kroki: research/xcl-agents/19-sparse-read-fault-and-mesh-hang.md
